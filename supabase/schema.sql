@@ -181,3 +181,6 @@ grant execute on function public.qy_get(text), public.qy_summaries(text[]),
   public.qy_create(text, text, text), public.qy_add(text, numeric, text),
   public.qy_settle(text), public.qy_remove(text, uuid), public.qy_dispute(text, uuid),
   public.qy_rename(text, text) to anon, authenticated;
+
+-- make the API see the new functions right away
+notify pgrst, 'reload schema';
