@@ -5,8 +5,6 @@
 -- one per person. The tables are locked (RLS on, no policies), so the only way
 -- in is through the functions below, and each function needs a valid token.
 
-create extension if not exists pgcrypto;
-
 create table if not exists public.qy_ledgers (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
@@ -37,9 +35,10 @@ revoke all on public.qy_ledgers, public.qy_entries from anon, authenticated;
 
 -- helpers ---------------------------------------------------------------
 
+-- 32 random hex characters (built-in, no extension needed)
 create or replace function public._qy_token() returns text
 language sql volatile as $$
-  select rtrim(translate(encode(gen_random_bytes(16), 'base64'), '+/', '-_'), '=');
+  select replace(gen_random_uuid()::text, '-', '') || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
 $$;
 
 create or replace function public._qy_clean(p text, p_max int) returns text
