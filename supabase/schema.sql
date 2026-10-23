@@ -32,6 +32,10 @@ alter table public.qy_entries add column if not exists currency text;
 alter table public.qy_entries add column if not exists dispute_reason text not null default '';
 update public.qy_entries e set currency = l.currency
   from public.qy_ledgers l where e.ledger_id = l.id and e.currency is null;
+-- v3: group splits (قطة) — entries from one shared expense carry the same group_id
+alter table public.qy_entries add column if not exists group_id uuid;
+alter table public.qy_entries add column if not exists split_total numeric(16,2);
+alter table public.qy_entries add column if not exists split_count int;
 
 create index if not exists qy_entries_ledger on public.qy_entries(ledger_id, created_at desc);
 
@@ -97,6 +101,7 @@ begin
                       'currency', coalesce(e.currency, l.currency),
                       'mine', e.by_side = s, 'kind', e.kind,
                       'disputed', e.disputed, 'dispute_reason', e.dispute_reason,
+                      'group_id', e.group_id, 'split_total', e.split_total, 'split_count', e.split_count,
                       'created_at', e.created_at)
                     order by e.created_at desc)
                   from qy_entries e where e.ledger_id = l.id and not e.deleted), '[]'::json)
@@ -196,6 +201,30 @@ begin
   return qy_get(p_token);
 end $$;
 
+-- one shared expense split across several tabs, all or nothing.
+-- p_items: [{"token": "...", "amount": 3000}, ...] — each amount is what that friend owes me
+create or replace function public.qy_split(p_items json, p_note text, p_currency text, p_total numeric, p_count int)
+returns json language plpgsql volatile security definer set search_path = public as $$
+declare g uuid := gen_random_uuid(); it json; l qy_ledgers; s char(1); amt numeric; eid uuid; res json[] := '{}';
+begin
+  if not _qy_cur_ok(p_currency) then raise exception 'bad currency'; end if;
+  if json_array_length(p_items) not between 1 and 60 or p_count not between 2 and 61 then raise exception 'bad size'; end if;
+  if p_total is null or p_total <= 0 or p_total > 1e12 then raise exception 'bad total'; end if;
+  for it in select * from json_array_elements(p_items) loop
+    select * into l from qy_ledgers where a_token = it->>'token' or b_token = it->>'token';
+    if not found then raise exception 'not found'; end if;
+    s := case when l.a_token = it->>'token' then 'a' else 'b' end;
+    amt := round((it->>'amount')::numeric, 2);
+    if amt is null or amt <= 0 or amt > p_total then raise exception 'bad amount'; end if;
+    insert into qy_entries(ledger_id, amount, note, by_side, currency, group_id, split_total, split_count)
+    values (l.id, amt * case when s = 'a' then 1 else -1 end, _qy_clean(p_note, 140), s, p_currency, g, round(p_total, 2), p_count)
+    returning id into eid;
+    update qy_ledgers set updated_at = now() where id = l.id;
+    res := res || json_build_object('token', it->>'token', 'id', eid, 'amount', amt);
+  end loop;
+  return json_build_object('group_id', g, 'items', array_to_json(res));
+end $$;
+
 create or replace function public.qy_rename(p_token text, p_name text)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare n text := _qy_clean(p_name, 40);
@@ -211,7 +240,7 @@ revoke execute on function public._qy_token(), public._qy_balances(uuid, text, i
 grant execute on function public.qy_get(text), public.qy_summaries(text[]),
   public.qy_create(text, text, text), public.qy_add(text, numeric, text, text),
   public.qy_settle(text), public.qy_remove(text, uuid), public.qy_dispute(text, uuid, text),
-  public.qy_rename(text, text) to anon, authenticated;
+  public.qy_rename(text, text), public.qy_split(json, text, text, numeric, int) to anon, authenticated;
 
 -- make the API see the new functions right away
 notify pgrst, 'reload schema';

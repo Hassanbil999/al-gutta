@@ -1,6 +1,6 @@
 // Offline support: app files come from the network when online, from the cache when offline.
 // Bump VERSION when you deploy changes.
-const VERSION = 'qy-v2';
+const VERSION = 'qy-v3';
 const SHELL = [
   './', './index.html', './css/style.css', './config.js',
   './js/app.js', './js/store.js', './js/i18n.js', './js/qamariya.js',

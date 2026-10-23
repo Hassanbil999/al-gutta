@@ -18,6 +18,7 @@ const ICON = {
   copy: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/></svg>',
   wa: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1112 20a8 8 0 01-3.9-1z"/><path d="M9 9.5c.3 2.3 2.2 4.3 4.5 4.8l1.2-1.2 1.8.8c-.2 1-1 1.6-2 1.6A6 6 0 017.5 9.5c0-1 .6-1.8 1.6-2l.8 1.8z" class="fill"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  divide: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/><circle class="fill" cx="12" cy="6.2" r="1.7"/><circle class="fill" cx="12" cy="17.8" r="1.7"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
 };
 
@@ -27,6 +28,9 @@ const settings = Object.assign({ lang: browserAr ? 'ar' : 'en', nums: null, name
 const saveSettings = () => LS.set('qy.settings', settings);
 let tabs = LS.get('qy.tabs', []);
 const saveTabs = () => LS.set('qy.tabs', tabs);
+let splits = LS.get('qy.splits', []);   // group expenses I paid for (on this device)
+const saveSplits = () => LS.set('qy.splits', splits);
+let homeView = 'friends';      // 'friends' | 'splits'
 let current = null;            // { token, data, offline, missing }
 let pollTimer = null;
 let installPrompt = null;
@@ -55,6 +59,7 @@ const statusOfB = (b, name) => {
   const m = moodOfB(b);
   return m === 'mixed' ? T('mixed') : m === 'even' ? T('even') : m === 'plus' ? T('owesYou', esc(name)) : T('youOwe', esc(name));
 };
+const r2 = (x) => Math.round(x * 100) / 100;
 const signed = (v, c) => `<span class="${v > 0 ? 'pos' : 'neg'}">${money(v, c)}</span>`;
 const linkFor = (tok) => location.origin + location.pathname.replace(/index\.html$/, '') + '#/t/' + tok;
 const parseAmount = (s) => {
@@ -69,7 +74,7 @@ function upsertTab(token, d) {
   if (!x) { x = { token }; tabs.unshift(x); }
   Object.assign(x, {
     friend: d.friend, me: d.me, currency: d.currency, balance: d.balance, balances: d.balances, side: d.side,
-    ledgerId: d.ledger_id, updatedAt: d.updated_at, shareToken: d.share_token ?? x.shareToken,
+    ledgerId: d.ledger_id, updatedAt: d.updated_at, shareToken: d.share_token ?? x.shareToken, lastCur: x.lastCur,
   });
   saveTabs();
   return x;
@@ -120,7 +125,7 @@ function renderHome() {
   for (const x of tabs) {
     for (const [cur, v] of Object.entries(balsOf(x))) {
       const c = (totals[cur] ??= { plus: 0, minus: 0 });
-      if (v > 0) c.plus += v; else c.minus -= v;
+      if (v > 0) c.plus = r2(c.plus + v); else c.minus = r2(c.minus - v);
     }
   }
   const curs = Object.keys(totals);
@@ -130,14 +135,31 @@ function renderHome() {
   ${demoBanner()}
   <main class="home">
     ${tabs.length ? `
+      <div class="seg home-seg" role="tablist">
+        <button role="tab" data-act="view" data-v="friends" aria-pressed="${homeView === 'friends'}">${T('friendsTab')}</button>
+        <button role="tab" data-act="view" data-v="splits" aria-pressed="${homeView === 'splits'}">${T('splits')}${splits.length ? ` <small>${nf().format(splits.length)}</small>` : ''}</button>
+      </div>
+      ${homeView === 'friends' ? `
       <section class="summary">
         <div class="sum plus"><small>${T('owedToYou')}</small>${totalLines('plus')}</div>
         <div class="sum minus"><small>${T('youOweTotal')}</small>${totalLines('minus')}</div>
       </section>
-      <ul class="tabs">${tabs.map(tabRow).join('')}</ul>`
+      <ul class="tabs">${tabs.map(tabRow).join('')}</ul>` : splitsList()}`
     : `<div class="empty-home">${qamariya({ mood: 'even', variant: 'mini' })}<p>${esc(T('homeEmpty')).replace('\n', '<br>')}</p></div>`}
   </main>
-  <button class="fab" data-act="new"><span>+</span> ${T('addFriend')}</button>`;
+  <div class="fab-bar">
+    ${tabs.length ? `<button class="fab alt" data-act="split">${ICON.divide} ${T('splitBtn')}</button>` : ''}
+    <button class="fab" data-act="new"><span>+</span> ${T('addFriend')}</button>
+  </div>`;
+}
+
+function splitsList() {
+  if (!splits.length) return `<div class="empty-home"><span class="split-badge big">${ICON.divide}</span><p>${esc(T('noSplits')).replace('\n', '<br>')}</p></div>`;
+  return `<ul class="tabs">${splits.map((g) => `<li><button class="tab-row" data-act="split-open" data-id="${esc(g.group_id)}">
+    <span class="split-badge">${ICON.divide}</span>
+    <span class="who"><b>${esc(g.note || T('split'))}</b><small><bdi>${when(g.created_at)}</bdi> · ${T('people', nf().format(g.count))}</small></span>
+    <span class="amt">${money(g.total, g.currency)}</span>
+  </button></li>`).join('')}</ul>`;
 }
 
 function tabRow(x) {
@@ -207,6 +229,7 @@ function entryRow(e, d) {
     <span class="sign">${pos ? '+' : '−'}</span>
     <span class="meta"><b>${esc(e.note) || (pos ? T('lentPos') : T('lentNeg'))}</b>
       <small><bdi>${who}</bdi> · <bdi>${when(e.created_at)}</bdi>${e.disputed ? ` · <em>${T('disputed')}</em>` : ''}</small>
+      ${e.group_id && e.split_total ? `<span class="split-tag">${T('splitTag', money(e.split_total, e.currency || d.currency), nf().format(e.split_count))}</span>` : ''}
       ${e.disputed && e.dispute_reason ? `<span class="reason">«<bdi>${esc(e.dispute_reason)}</bdi>»</span>` : ''}</span>
     <span class="amt">${money(e.amount, e.currency || d.currency)}</span>
     <span class="ops">${e.mine
@@ -317,6 +340,9 @@ function newTabSheet() {
   </form>`);
 }
 
+// the currency I used last with this friend (falls back to the tab's last one)
+const myCur = () => tabs.find((x) => x.token === current?.token)?.lastCur || current?.data?.currency || 'YER';
+
 function entrySheet(dir) {
   const d = current?.data;
   if (!d) return;
@@ -324,8 +350,8 @@ function entrySheet(dir) {
     <h2 class="sheet-title">${dir > 0 ? T('owesYou', esc(d.friend)) : T('youOwe', esc(d.friend))}</h2>
     <label class="amount-field"><span class="sr">${T('amount')}</span>
       <input name="amount" inputmode="decimal" autocomplete="off" required autofocus placeholder="${nf().format(0)}" dir="ltr">
-      <span class="cur">${esc(curLabel(d.currency))}</span></label>
-    <div class="chips center-chips" role="radiogroup" aria-label="${T('currency')}">${currencyChips(d.currency)}</div>
+      <span class="cur">${esc(curLabel(myCur()))}</span></label>
+    <div class="chips center-chips" role="radiogroup" aria-label="${T('currency')}">${currencyChips(myCur())}</div>
     <label class="field"><span>${T('note')}</span><input name="note" maxlength="140" placeholder="${T('notePh')}"></label>
     <button class="btn big ${dir > 0 ? 'pos' : 'neg'}" type="submit">${T('save')}</button>
   </form>`, (el) => el.addEventListener('change', (e) => {
@@ -412,6 +438,113 @@ function installHtml() {
   return '';
 }
 
+// ---------- القطة: split one payment between friends ----------
+// Shares: fixed amounts first, the rest is divided equally; any rounding leftover goes to the first
+// equal-share person (me, when I'm included), so the shares always add up to the total.
+function computeShares(total, parts, cur) {
+  const unit = cur === 'YER' ? 1 : 100;
+  const fixed = parts.filter((p) => p.custom != null), free = parts.filter((p) => p.custom == null);
+  const rest = r2(total - fixed.reduce((a, p) => a + p.custom, 0));
+  if (rest < 0) return { error: 'splitOver' };
+  if (!free.length && Math.abs(rest) >= 0.005) return { error: 'splitMismatch' };
+  const each = free.length ? Math.floor((rest * unit) / free.length + 1e-9) / unit : 0;
+  const extra = r2(rest - each * free.length);
+  const shares = {};
+  for (const p of fixed) shares[p.key] = p.custom;
+  free.forEach((p, i) => { shares[p.key] = i === 0 ? r2(each + extra) : each; });
+  return { shares, each };
+}
+
+function splitSheet() {
+  const cur0 = tabs[0]?.lastCur || tabs[0]?.currency || 'YER';
+  sheet(`<form class="stack split-form" data-form="split" novalidate>
+    <h2 class="sheet-title">${T('newSplit')}</h2>
+    <label class="field"><span>${T('totalPaid')}</span></label>
+    <label class="amount-field" style="margin-top:-8px"><span class="sr">${T('totalPaid')}</span>
+      <input name="total" inputmode="decimal" autocomplete="off" autofocus placeholder="${nf().format(0)}" dir="ltr">
+      <span class="cur">${esc(curLabel(cur0))}</span></label>
+    <div class="chips center-chips">${currencyChips(cur0)}</div>
+    <label class="field"><span>${T('note')}</span><input name="note" maxlength="140" placeholder="${T('splitNotePh')}"></label>
+    <div class="field"><span>${T('splitWho')}</span>
+      <div class="chips people">
+        <label class="chip me"><input type="checkbox" name="me" checked><span>${T('you')}</span></label>
+        ${tabs.map((x) => `<label class="chip"><input type="checkbox" name="p" value="${esc(x.token)}"><span>${esc(x.friend)}</span></label>`).join('')}
+      </div></div>
+    <div class="breakdown"></div>
+    <p class="muted small split-hint">${T('splitRest')}</p>
+    <p class="split-error" role="alert"></p>
+    <button class="btn primary big" type="submit" disabled>${T('splitGo0')}</button>
+  </form>`, (el) => {
+    const custom = {};
+    const totalIn = $('[name=total]', el), bd = $('.breakdown', el), err = $('.split-error', el), go = $('[type=submit]', el);
+    const cur = () => $('[name=currency]:checked', el)?.value || cur0;
+    const parts = () => {
+      const out = [];
+      if ($('[name=me]', el).checked) out.push({ key: 'me', name: T('you') });
+      el.querySelectorAll('[name=p]:checked').forEach((c) => out.push({ key: c.value, name: tabs.find((x) => x.token === c.value)?.friend || '' }));
+      return out.map((p) => ({ ...p, custom: custom[p.key] ?? null }));
+    };
+    const rows = () => {
+      bd.innerHTML = parts().map((p) => `<div class="share-row">
+        <span class="nm">${esc(p.name)}</span>
+        <input data-key="${esc(p.key)}" inputmode="decimal" autocomplete="off" dir="ltr" value="${custom[p.key] != null ? custom[p.key] : ''}" aria-label="${esc(p.name)}">
+        <span class="cur">${esc(curLabel(cur()))}</span></div>`).join('');
+      update();
+    };
+    const update = () => {
+      const total = parseAmount(totalIn.value), ps = parts(), friends = ps.filter((p) => p.key !== 'me');
+      $('.amount-field .cur', el).textContent = curLabel(cur());
+      bd.querySelectorAll('.cur').forEach((c) => { c.textContent = curLabel(cur()); });
+      let msg = '', ok = false;
+      if (!friends.length) msg = T('pickOne');
+      else if (!(total > 0)) msg = '';
+      else {
+        const r = computeShares(total, ps, cur());
+        if (r.error) msg = T(r.error);
+        else {
+          bd.querySelectorAll('input[data-key]').forEach((i) => { i.placeholder = nf().format(r.shares[i.dataset.key] ?? 0); });
+          const charged = friends.filter((p) => r.shares[p.key] > 0);
+          ok = charged.length > 0;
+          if (!ok) msg = T('splitMismatch');
+          el._result = { total, shares: r.shares, parts: ps, charged };
+          go.textContent = ok ? T('splitGo', nf().format(charged.length)) : T('splitGo0');
+        }
+      }
+      err.textContent = msg;
+      go.disabled = !ok;
+      if (!ok) el._result = null;
+    };
+    el.addEventListener('change', (e) => {
+      if (e.target.name === 'me' || e.target.name === 'p') rows();
+      else if (e.target.name === 'currency') update();
+    });
+    el.addEventListener('input', (e) => {
+      if (e.target.dataset.key) {
+        const v = e.target.value.trim();
+        if (v === '') delete custom[e.target.dataset.key];
+        else { const n = parseAmount(v); if (Number.isFinite(n) && n >= 0) custom[e.target.dataset.key] = n; }
+      }
+      update();
+    });
+    rows();
+  });
+}
+
+function splitDetail(id) {
+  const g = splits.find((x) => x.group_id === id);
+  if (!g) return;
+  const line = (name, amt, cls = '') => `<li class="${cls}"><span>${name}</span>${money(amt, g.currency)}</li>`;
+  sheet(`<div class="stack">
+    <h2 class="sheet-title">${esc(g.note || T('split'))}</h2>
+    <p class="muted"><bdi>${when(g.created_at)}</bdi> · ${money(g.total, g.currency)} · ${T('people', nf().format(g.count))}</p>
+    <ul class="split-lines">
+      ${g.me ? line(T('mine'), g.me, 'me') : ''}
+      ${g.items.map((it) => line(esc(it.friend), it.amount)).join('')}
+    </ul>
+    <button class="btn ghost neg-text" data-act="split-undo" data-id="${esc(g.group_id)}">${ICON.trash} ${T('undoSplit')}</button>
+  </div>`);
+}
+
 function settingsSheet() {
   const seg = (name, opts, val) => `<div class="seg">${opts.map(([v, l]) =>
     `<label><input type="radio" name="${name}" value="${v}" ${v === val ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
@@ -462,6 +595,21 @@ document.addEventListener('click', async (e) => {
   if (act === 'home') { closeSheet(true); location.hash = '#/'; }
   else if (act === 'open') location.hash = '#/t/' + el.dataset.token;
   else if (act === 'new') newTabSheet();
+  else if (act === 'split') splitSheet();
+  else if (act === 'view') { homeView = el.dataset.v; renderHome(); }
+  else if (act === 'split-open') splitDetail(el.dataset.id);
+  else if (act === 'split-undo') {
+    const g = splits.find((x) => x.group_id === el.dataset.id);
+    if (!g) return;
+    confirmSheet({ title: T('undoSplit'), body: T('undoSplitQ'), danger: true, ok: T('undo'), onOk: async () => {
+      const ok = await busy(null, () => Promise.all(g.items.map((it) => api.remove(it.token, it.id))));
+      closeSheet(true);
+      if (ok) {
+        splits = splits.filter((x) => x !== g); saveSplits();
+        toast(T('splitUndone')); renderHome(); refreshHome();
+      }
+    } });
+  }
   else if (act === 'settings') settingsSheet();
   else if (act === 'lang') { settings.lang = settings.lang === 'ar' ? 'en' : 'ar'; saveSettings(); applyLang(); route(); }
   else if (act === 'add') entrySheet(Number(el.dataset.dir));
@@ -515,9 +663,33 @@ document.addEventListener('submit', async (e) => {
     const amount = parseAmount(fd.get('amount'));
     const input = form.querySelector('[name=amount]');
     if (!amount || amount <= 0) { input.focus(); input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 400); return; }
-    const cur = String(fd.get('currency') || current.data.currency);
+    const cur = String(fd.get('currency') || myCur());
+    const tab = tabs.find((x) => x.token === current.token);
+    if (tab) { tab.lastCur = cur; saveTabs(); }
     const r = await busy(btn, () => api.add(current.token, amount * Number(form.dataset.dir), String(fd.get('note') || ''), cur));
     if (r) { closeSheet(); setData(r); if (moodOfB(balsOf(r)) === 'even') celebrate(); }
+  }
+  else if (kind === 'split') {
+    const res = form.closest('.sheet')?._result;
+    if (!res) return;
+    const cur = String(fd.get('currency'));
+    const note = String(fd.get('note') || '').trim();
+    const items = res.charged.map((p) => ({ token: p.key, amount: res.shares[p.key] }));
+    const r = await busy(btn, () => api.split(items, note || T('split'), cur, res.total, res.parts.length));
+    if (!r) return;
+    splits.unshift({
+      group_id: r.group_id, created_at: new Date().toISOString(), note, currency: cur, total: res.total,
+      count: res.parts.length, me: res.shares.me || 0,
+      items: r.items.map((it) => ({ ...it, friend: tabs.find((x) => x.token === it.token)?.friend || '' })),
+    });
+    saveSplits();
+    for (const it of items) { const t = tabs.find((x) => x.token === it.token); if (t) { t.lastCur = cur; } }
+    saveTabs();
+    closeSheet(true);
+    homeView = 'splits';
+    toast(T('splitDone'));
+    renderHome();
+    refreshHome();
   }
   else if (kind === 'dispute') {
     const r = await busy(btn, () => api.dispute(current.token, form.dataset.id, String(fd.get('reason') || '').trim()));

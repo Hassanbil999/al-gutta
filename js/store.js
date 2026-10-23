@@ -30,6 +30,7 @@ const remote = {
   remove: (token, id) => rpc('qy_remove', { p_token: token, p_id: id }),
   dispute: (token, id, reason = '') => rpc('qy_dispute', { p_token: token, p_id: id, p_reason: reason }),
   rename: (token, name) => rpc('qy_rename', { p_token: token, p_name: name }),
+  split: (items, note, currency, total, count) => rpc('qy_split', { p_items: items, p_note: note, p_currency: currency, p_total: total, p_count: count }),
 };
 
 // ---- demo: mirrors supabase/schema.sql in localStorage ----
@@ -71,7 +72,7 @@ function view(db, token) {
     balances: balancesOf(db, l, sg),
     entries: db.entries.filter((e) => e.ledger_id === l.id && !e.deleted)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, currency: e.currency || l.currency, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, dispute_reason: e.dispute_reason || '', created_at: e.created_at })),
+      .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, currency: e.currency || l.currency, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, dispute_reason: e.dispute_reason || '', group_id: e.group_id || null, split_total: e.split_total ?? null, split_count: e.split_count ?? null, created_at: e.created_at })),
   };
 }
 function mutate(token, fn) {
@@ -117,6 +118,21 @@ const local = {
     const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side !== s && e.kind === 'entry');
     if (e) { e.dispute_reason = e.disputed ? '' : clean(reason, 60); e.disputed = !e.disputed; }
   })),
+  split: (items, note, currency, total, count) => later(() => {
+    const db = load(), g = uuid(), out = [];
+    for (const it of items) {
+      const f = find(db, it.token);
+      if (!f) throw new Error('not found');
+      const amt = r2(it.amount);
+      if (!(amt > 0) || amt > total) throw new Error('bad amount');
+      const id = uuid();
+      db.entries.push({ id, ledger_id: f.l.id, created_at: now(), amount: amt * (f.s === 'a' ? 1 : -1), currency, note: clean(note, 140), by_side: f.s, kind: 'entry', disputed: false, dispute_reason: '', deleted: false, group_id: g, split_total: r2(total), split_count: count });
+      f.l.updated_at = now();
+      out.push({ token: it.token, id, amount: amt });
+    }
+    save(db);
+    return { group_id: g, items: out };
+  }),
   rename: (token, name) => later(() => mutate(token, (db, l, s) => {
     name = clean(name, 40);
     if (!name) throw new Error('name required');

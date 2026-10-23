@@ -6,6 +6,7 @@ const C = { red: '#B8322A', saffron: '#E0A22B', green: '#2F7D5B', indigo: '#2C4A
 const PALETTES = {
   even:  { outer: [C.red, C.saffron, C.green, C.indigo, C.turq, C.indigo, C.green, C.saffron, C.red], inner: [C.indigo, C.green, C.red, C.green, C.indigo], sun: C.saffron },
   plus:  { outer: [C.green, C.saffron, C.turq, C.green, C.gold, C.green, C.turq, C.saffron, C.green], inner: [C.saffron, C.green, C.turq, C.green, C.saffron], sun: C.saffron },
+  mixed: { outer: [C.green, C.saffron, C.turq, C.green, C.saffron, C.red, C.indigo, C.rose, C.red], inner: [C.green, C.saffron, C.saffron, C.indigo, C.red], sun: C.saffron },
   minus: { outer: [C.red, C.indigo, C.rose, C.red, C.indigo, C.red, C.rose, C.indigo, C.red], inner: [C.indigo, C.red, C.rose, C.red, C.indigo], sun: C.rose },
 };
 
