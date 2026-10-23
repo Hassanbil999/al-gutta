@@ -90,13 +90,15 @@ export const STR = {
   },
 };
 
+// order = order of the chips; `hidden` ones only display on old entries
 export const CURRENCIES = {
+  USD: { ar: '$', en: 'USD' },
+  LBP: { ar: 'ل.ل', en: 'LBP' },
   YER: { ar: 'ر.ي', en: 'YER' },
   SAR: { ar: 'ر.س', en: 'SAR' },
-  USD: { ar: '$', en: 'USD' },
   AED: { ar: 'د.إ', en: 'AED' },
-  EGP: { ar: 'ج.م', en: 'EGP' },
   EUR: { ar: '€', en: 'EUR' },
+  EGP: { ar: 'ج.م', en: 'EGP', hidden: true },
 };
 
 export function t(lang, key, ...args) {

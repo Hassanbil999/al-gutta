@@ -9,7 +9,7 @@ create table if not exists public.qy_ledgers (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
-  currency    text not null default 'YER',     -- last currency used (default for the next entry)
+  currency    text not null default 'USD',     -- last currency used (default for the next entry)
   a_name      text not null,
   b_name      text not null,
   a_token     text not null unique,
@@ -62,7 +62,7 @@ $$;
 
 create or replace function public._qy_cur_ok(p text) returns boolean
 language sql immutable as $$
-  select p in ('YER','SAR','USD','AED','EGP','EUR');
+  select p in ('USD','LBP','YER','SAR','AED','EUR','EGP');
 $$;
 
 -- non-zero balance per currency, from one side's point of view: {"YER": 3000, "USD": -20}

@@ -129,7 +129,7 @@ function renderHome() {
     }
   }
   const curs = Object.keys(totals);
-  const totalLines = (k) => curs.filter((c) => totals[c][k] > 0.004).map((c) => `<div>${money(totals[c][k], c)}</div>`).join('') || `<div class="zero">${money(0, curs[0] || tabs[0]?.currency || 'YER')}</div>`;
+  const totalLines = (k) => curs.filter((c) => totals[c][k] > 0.004).map((c) => `<div>${money(totals[c][k], c)}</div>`).join('') || `<div class="zero">${money(0, curs[0] || tabs[0]?.currency || 'USD')}</div>`;
   app.innerHTML = `
   ${header({ title: T('appName'), actions: `<button class="icon-btn" data-act="settings" aria-label="${T('settings')}">${ICON.gear}</button>` })}
   ${demoBanner()}
@@ -327,7 +327,7 @@ function closeSheet(immediate) {
 sheetRoot.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
-const currencyChips = (sel) => Object.keys(CURRENCIES).map((c) =>
+const currencyChips = (sel) => Object.keys(CURRENCIES).filter((c) => !CURRENCIES[c].hidden || c === sel).map((c) =>
   `<label class="chip"><input type="radio" name="currency" value="${c}" ${c === sel ? 'checked' : ''}><span>${CURRENCIES[c][settings.lang]}</span></label>`).join('');
 
 function newTabSheet() {
@@ -335,13 +335,13 @@ function newTabSheet() {
     <h2 class="sheet-title">${T('addFriend')}</h2>
     ${settings.name ? '' : `<label class="field"><span>${T('yourName')}</span><input name="me" maxlength="40" required></label>`}
     <label class="field"><span>${T('friendName')}</span><input name="friend" maxlength="40" required autofocus placeholder="${T('friendPh')}"></label>
-    <div class="field"><span>${T('currency')}</span><div class="chips">${currencyChips(tabs[0]?.currency || 'YER')}</div></div>
+    <div class="field"><span>${T('currency')}</span><div class="chips">${currencyChips(tabs[0]?.currency || 'USD')}</div></div>
     <button class="btn primary big" type="submit">${T('create')}</button>
   </form>`);
 }
 
 // the currency I used last with this friend (falls back to the tab's last one)
-const myCur = () => tabs.find((x) => x.token === current?.token)?.lastCur || current?.data?.currency || 'YER';
+const myCur = () => tabs.find((x) => x.token === current?.token)?.lastCur || current?.data?.currency || 'USD';
 
 function entrySheet(dir) {
   const d = current?.data;
@@ -442,7 +442,7 @@ function installHtml() {
 // Shares: fixed amounts first, the rest is divided equally; any rounding leftover goes to the first
 // equal-share person (me, when I'm included), so the shares always add up to the total.
 function computeShares(total, parts, cur) {
-  const unit = cur === 'YER' ? 1 : 100;
+  const unit = cur === 'YER' || cur === 'LBP' ? 1 : 100;   // no small coins in use
   const fixed = parts.filter((p) => p.custom != null), free = parts.filter((p) => p.custom == null);
   const rest = r2(total - fixed.reduce((a, p) => a + p.custom, 0));
   if (rest < 0) return { error: 'splitOver' };
@@ -456,7 +456,7 @@ function computeShares(total, parts, cur) {
 }
 
 function splitSheet() {
-  const cur0 = tabs[0]?.lastCur || tabs[0]?.currency || 'YER';
+  const cur0 = tabs[0]?.lastCur || tabs[0]?.currency || 'USD';
   sheet(`<form class="stack split-form" data-form="split" novalidate>
     <h2 class="sheet-title">${T('newSplit')}</h2>
     <label class="field"><span>${T('totalPaid')}</span></label>
@@ -649,7 +649,7 @@ document.addEventListener('submit', async (e) => {
   }
   else if (kind === 'new') {
     if (fd.get('me')) { settings.name = String(fd.get('me')).trim(); saveSettings(); }
-    const friend = String(fd.get('friend')).trim(), cur = String(fd.get('currency') || 'YER');
+    const friend = String(fd.get('friend')).trim(), cur = String(fd.get('currency') || 'USD');
     const r = await busy(btn, () => api.create(settings.name, friend, cur));
     if (!r) return;
     tabs.unshift({ token: r.token, friend, me: settings.name, currency: cur, balance: 0, side: 'a', shareToken: r.share_token });
