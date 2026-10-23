@@ -1,0 +1,19 @@
+{
+  "name": "القطة ياعبدو · Al-Gutta Ya Abdo",
+  "short_name": "القطة",
+  "description": "حساب بسيط بينك وبين ربعك — يرجع صفر، وتبقى المحبة.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3EBDD",
+  "theme_color": "#7A4A2E",
+  "categories": ["finance", "lifestyle"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
