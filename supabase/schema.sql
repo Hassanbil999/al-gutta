@@ -1,5 +1,5 @@
 -- القطة ياعبدو — database schema
--- Paste this whole file into Supabase → SQL Editor → Run. Safe to re-run.
+-- Paste this whole file into Supabase → SQL Editor → Run. Safe to re-run (also upgrades older versions).
 --
 -- Security model: there are no user accounts. Each tab has two secret tokens,
 -- one per person. The tables are locked (RLS on, no policies), so the only way
@@ -9,7 +9,7 @@ create table if not exists public.qy_ledgers (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
-  currency    text not null default 'YER',
+  currency    text not null default 'YER',     -- last currency used (default for the next entry)
   a_name      text not null,
   b_name      text not null,
   a_token     text not null unique,
@@ -27,15 +27,25 @@ create table if not exists public.qy_entries (
   disputed    boolean not null default false,
   deleted     boolean not null default false
 );
+-- v2: each entry has its own currency, and a dispute can carry a short reason
+alter table public.qy_entries add column if not exists currency text;
+alter table public.qy_entries add column if not exists dispute_reason text not null default '';
+update public.qy_entries e set currency = l.currency
+  from public.qy_ledgers l where e.ledger_id = l.id and e.currency is null;
+
 create index if not exists qy_entries_ledger on public.qy_entries(ledger_id, created_at desc);
 
 alter table public.qy_ledgers enable row level security;
 alter table public.qy_entries enable row level security;
 revoke all on public.qy_ledgers, public.qy_entries from anon, authenticated;
 
+-- old function signatures (replaced below)
+drop function if exists public.qy_add(text, numeric, text);
+drop function if exists public.qy_dispute(text, uuid);
+
 -- helpers ---------------------------------------------------------------
 
--- 32 random hex characters (built-in, no extension needed)
+-- 40 random hex characters (built-in, no extension needed)
 create or replace function public._qy_token() returns text
 language sql volatile as $$
   select replace(gen_random_uuid()::text, '-', '') || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
@@ -44,6 +54,20 @@ $$;
 create or replace function public._qy_clean(p text, p_max int) returns text
 language sql immutable as $$
   select left(btrim(regexp_replace(coalesce(p, ''), '\s+', ' ', 'g')), p_max);
+$$;
+
+create or replace function public._qy_cur_ok(p text) returns boolean
+language sql immutable as $$
+  select p in ('YER','SAR','USD','AED','EGP','EUR');
+$$;
+
+-- non-zero balance per currency, from one side's point of view: {"YER": 3000, "USD": -20}
+create or replace function public._qy_balances(p_lid uuid, p_cur text, p_sg int) returns json
+language sql stable as $$
+  select coalesce(json_object_agg(c, b), '{}'::json) from (
+    select coalesce(currency, p_cur) as c, sum(amount) * p_sg as b
+    from public.qy_entries where ledger_id = p_lid and not deleted
+    group by 1 having sum(amount) <> 0) x;
 $$;
 
 -- the view of a tab from one person's side
@@ -65,11 +89,15 @@ begin
     'updated_at', l.updated_at,
     'share_token', case when s = 'a' then l.b_token else null end,
     'balance',    coalesce((select sum(amount) from qy_entries
-                            where ledger_id = l.id and not deleted), 0) * sg,
+                            where ledger_id = l.id and not deleted
+                              and coalesce(currency, l.currency) = l.currency), 0) * sg,
+    'balances',   _qy_balances(l.id, l.currency, sg),
     'entries',    coalesce((select json_agg(json_build_object(
                       'id', e.id, 'amount', e.amount * sg, 'note', e.note,
+                      'currency', coalesce(e.currency, l.currency),
                       'mine', e.by_side = s, 'kind', e.kind,
-                      'disputed', e.disputed, 'created_at', e.created_at)
+                      'disputed', e.disputed, 'dispute_reason', e.dispute_reason,
+                      'created_at', e.created_at)
                     order by e.created_at desc)
                   from qy_entries e where e.ledger_id = l.id and not e.deleted), '[]'::json)
   );
@@ -86,9 +114,7 @@ begin
       'me', case when l.a_token = t.tok then l.a_name else l.b_name end,
       'friend', case when l.a_token = t.tok then l.b_name else l.a_name end,
       'currency', l.currency, 'updated_at', l.updated_at,
-      'balance', coalesce((select sum(amount) from qy_entries e
-                           where e.ledger_id = l.id and not e.deleted), 0)
-                 * case when l.a_token = t.tok then 1 else -1 end))
+      'balances', _qy_balances(l.id, l.currency, case when l.a_token = t.tok then 1 else -1 end)))
     from unnest(p_tokens) as t(tok)
     join qy_ledgers l on l.a_token = t.tok or l.b_token = t.tok), '[]'::json);
 end $$;
@@ -100,41 +126,44 @@ declare me text := _qy_clean(p_my_name, 40);
         ta text := _qy_token(); tb text := _qy_token();
 begin
   if me = '' or fr = '' then raise exception 'name required'; end if;
-  if p_currency not in ('YER','SAR','USD','AED','EGP','EUR') then raise exception 'bad currency'; end if;
+  if not _qy_cur_ok(p_currency) then raise exception 'bad currency'; end if;
   insert into qy_ledgers(currency, a_name, b_name, a_token, b_token)
   values (p_currency, me, fr, ta, tb);
   return json_build_object('token', ta, 'share_token', tb);
 end $$;
 
-create or replace function public.qy_add(p_token text, p_amount numeric, p_note text)
+create or replace function public.qy_add(p_token text, p_amount numeric, p_note text, p_currency text default null)
+returns json language plpgsql volatile security definer set search_path = public as $$
+declare l qy_ledgers; s char(1); cur text;
+begin
+  select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
+  if not found then raise exception 'not found'; end if;
+  s := case when l.a_token = p_token then 'a' else 'b' end;
+  cur := coalesce(p_currency, l.currency);
+  if not _qy_cur_ok(cur) then raise exception 'bad currency'; end if;
+  if p_amount is null or round(p_amount, 2) = 0 or abs(p_amount) > 1e12 then
+    raise exception 'bad amount';
+  end if;
+  insert into qy_entries(ledger_id, amount, note, by_side, currency)
+  values (l.id, round(p_amount, 2) * case when s = 'a' then 1 else -1 end,
+          _qy_clean(p_note, 140), s, cur);
+  update qy_ledgers set updated_at = now(), currency = cur where id = l.id;
+  return qy_get(p_token);
+end $$;
+
+-- settles every currency back to zero
+create or replace function public.qy_settle(p_token text)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1);
 begin
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
-  if p_amount is null or round(p_amount, 2) = 0 or abs(p_amount) > 1e12 then
-    raise exception 'bad amount';
-  end if;
-  insert into qy_entries(ledger_id, amount, note, by_side)
-  values (l.id, round(p_amount, 2) * case when s = 'a' then 1 else -1 end,
-          _qy_clean(p_note, 140), s);
+  insert into qy_entries(ledger_id, amount, by_side, kind, currency)
+  select l.id, -sum(amount), s, 'settle', coalesce(currency, l.currency)
+    from qy_entries where ledger_id = l.id and not deleted
+   group by coalesce(currency, l.currency) having sum(amount) <> 0;
   update qy_ledgers set updated_at = now() where id = l.id;
-  return qy_get(p_token);
-end $$;
-
-create or replace function public.qy_settle(p_token text)
-returns json language plpgsql volatile security definer set search_path = public as $$
-declare l qy_ledgers; s char(1); bal numeric;
-begin
-  select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
-  if not found then raise exception 'not found'; end if;
-  s := case when l.a_token = p_token then 'a' else 'b' end;
-  select coalesce(sum(amount), 0) into bal from qy_entries where ledger_id = l.id and not deleted;
-  if bal <> 0 then
-    insert into qy_entries(ledger_id, amount, by_side, kind) values (l.id, -bal, s, 'settle');
-    update qy_ledgers set updated_at = now() where id = l.id;
-  end if;
   return qy_get(p_token);
 end $$;
 
@@ -151,15 +180,17 @@ begin
   return qy_get(p_token);
 end $$;
 
--- only the other person can flag an entry as "not right"
-create or replace function public.qy_dispute(p_token text, p_id uuid)
+-- only the other person can flag an entry as "not right", with an optional short reason
+create or replace function public.qy_dispute(p_token text, p_id uuid, p_reason text default null)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1);
 begin
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
-  update qy_entries set disputed = not disputed
+  update qy_entries
+     set disputed = not disputed,
+         dispute_reason = case when disputed then '' else _qy_clean(p_reason, 60) end
    where id = p_id and ledger_id = l.id and by_side <> s and kind = 'entry';
   update qy_ledgers set updated_at = now() where id = l.id;
   return qy_get(p_token);
@@ -175,10 +206,11 @@ begin
   return qy_get(p_token);
 end $$;
 
-revoke execute on function public._qy_token() from public, anon, authenticated;
+revoke execute on function public._qy_token(), public._qy_balances(uuid, text, int)
+  from public, anon, authenticated;
 grant execute on function public.qy_get(text), public.qy_summaries(text[]),
-  public.qy_create(text, text, text), public.qy_add(text, numeric, text),
-  public.qy_settle(text), public.qy_remove(text, uuid), public.qy_dispute(text, uuid),
+  public.qy_create(text, text, text), public.qy_add(text, numeric, text, text),
+  public.qy_settle(text), public.qy_remove(text, uuid), public.qy_dispute(text, uuid, text),
   public.qy_rename(text, text) to anon, authenticated;
 
 -- make the API see the new functions right away

@@ -1,6 +1,6 @@
-// Offline support: app files load from cache, then refresh in the background.
+// Offline support: app files come from the network when online, from the cache when offline.
 // Bump VERSION when you deploy changes.
-const VERSION = 'qy-v1';
+const VERSION = 'qy-v2';
 const SHELL = [
   './', './index.html', './css/style.css', './config.js',
   './js/app.js', './js/store.js', './js/i18n.js', './js/qamariya.js',
@@ -25,13 +25,18 @@ self.addEventListener('fetch', (e) => {
   const isFont = /fonts\.(googleapis|gstatic)\.com$/.test(url.hostname);
   if (!sameOrigin && !isFont) return; // the database is always live
 
-  e.respondWith(caches.open(VERSION).then(async (cache) => {
-    const key = sameOrigin && req.mode === 'navigate' ? './index.html' : req;
-    const hit = await cache.match(key);
-    const net = fetch(req).then((res) => {
-      if (res.ok || res.type === 'opaque') cache.put(key, res.clone());
+  // app files: network first (so updates show right away), cache when offline
+  if (sameOrigin) {
+    const key = req.mode === 'navigate' ? './index.html' : req;
+    e.respondWith(fetch(req).then((res) => {
+      if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(key, copy)); }
       return res;
-    }).catch(() => hit);
-    return hit || net;
-  }));
+    }).catch(() => caches.match(key)));
+    return;
+  }
+  // fonts: cache first
+  e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+    const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy));
+    return res;
+  })));
 });

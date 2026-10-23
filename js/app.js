@@ -42,6 +42,20 @@ const when = (iso) => {
   catch { return new Date(iso).toLocaleString(); }
 };
 const statusOf = (bal, name) => (moodOf(bal) === 'even' ? T('even') : bal > 0 ? T('owesYou', esc(name)) : T('youOwe', esc(name)));
+// balances per currency: { YER: 3000, USD: -20 }; older cached tabs only had one balance
+const balsOf = (x) => x?.balances ?? (x?.balance ? { [x.currency]: x.balance } : {});
+const balList = (b, first) => Object.entries(b).filter(([, v]) => Math.abs(v) >= 0.005)
+  .sort(([a], [c]) => (a === first ? -1 : c === first ? 1 : a.localeCompare(c)));
+const moodOfB = (b) => {
+  const v = Object.values(b).filter((n) => Math.abs(n) >= 0.005);
+  if (!v.length) return 'even';
+  return v.every((n) => n > 0) ? 'plus' : v.every((n) => n < 0) ? 'minus' : 'mixed';
+};
+const statusOfB = (b, name) => {
+  const m = moodOfB(b);
+  return m === 'mixed' ? T('mixed') : m === 'even' ? T('even') : m === 'plus' ? T('owesYou', esc(name)) : T('youOwe', esc(name));
+};
+const signed = (v, c) => `<span class="${v > 0 ? 'pos' : 'neg'}">${money(v, c)}</span>`;
 const linkFor = (tok) => location.origin + location.pathname.replace(/index\.html$/, '') + '#/t/' + tok;
 const parseAmount = (s) => {
   s = String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
@@ -54,7 +68,7 @@ function upsertTab(token, d) {
   let x = tabs.find((x) => x.token === token);
   if (!x) { x = { token }; tabs.unshift(x); }
   Object.assign(x, {
-    friend: d.friend, me: d.me, currency: d.currency, balance: d.balance, side: d.side,
+    friend: d.friend, me: d.me, currency: d.currency, balance: d.balance, balances: d.balances, side: d.side,
     ledgerId: d.ledger_id, updatedAt: d.updated_at, shareToken: d.share_token ?? x.shareToken,
   });
   saveTabs();
@@ -104,11 +118,13 @@ function renderHome() {
   if (!settings.name && !tabs.length) return renderOnboard();
   const totals = {};
   for (const x of tabs) {
-    const c = (totals[x.currency] ??= { plus: 0, minus: 0 });
-    if (x.balance > 0) c.plus += x.balance; else c.minus -= x.balance || 0;
+    for (const [cur, v] of Object.entries(balsOf(x))) {
+      const c = (totals[cur] ??= { plus: 0, minus: 0 });
+      if (v > 0) c.plus += v; else c.minus -= v;
+    }
   }
   const curs = Object.keys(totals);
-  const totalLines = (k) => curs.filter((c) => totals[c][k] > 0.004).map((c) => `<div>${money(totals[c][k], c)}</div>`).join('') || `<div class="zero">${money(0, curs[0] || 'YER')}</div>`;
+  const totalLines = (k) => curs.filter((c) => totals[c][k] > 0.004).map((c) => `<div>${money(totals[c][k], c)}</div>`).join('') || `<div class="zero">${money(0, curs[0] || tabs[0]?.currency || 'YER')}</div>`;
   app.innerHTML = `
   ${header({ title: T('appName'), actions: `<button class="icon-btn" data-act="settings" aria-label="${T('settings')}">${ICON.gear}</button>` })}
   ${demoBanner()}
@@ -125,11 +141,11 @@ function renderHome() {
 }
 
 function tabRow(x) {
-  const mood = moodOf(x.balance || 0);
+  const b = balsOf(x), mood = moodOfB(b);
   return `<li><button class="tab-row mood-${mood}" data-act="open" data-token="${esc(x.token)}">
     <span class="mini">${qamariya({ mood, variant: 'mini' })}</span>
-    <span class="who"><b>${esc(x.friend)}</b><small>${statusOf(x.balance || 0, x.friend)}</small></span>
-    <span class="amt">${mood === 'even' ? '' : money(x.balance, x.currency)}</span>
+    <span class="who"><b>${esc(x.friend)}</b><small>${statusOfB(b, x.friend)}</small></span>
+    <span class="amt">${balList(b, x.currency).map(([c, v]) => signed(v, c)).join('')}</span>
   </button></li>`;
 }
 
@@ -144,7 +160,7 @@ function renderCounter() {
         : `<div class="window skeleton">${qamariya({ mood: 'even', variant: 'full' })}</div>`}</main>`;
     return;
   }
-  const mood = moodOf(d.balance);
+  const bals = balsOf(d), list = balList(bals, d.currency), mood = moodOfB(bals);
   const canShare = d.side === 'a' && d.share_token;
   app.innerHTML = `
   ${header({ title: esc(d.friend), back: true, actions: `
@@ -153,10 +169,12 @@ function renderCounter() {
   ${demoBanner()}
   ${c.offline ? `<p class="banner warn">${T('offline')}</p>` : ''}
   <main class="counter mood-${mood}">
-    <div class="window">${qamariya({ mood, variant: 'full', label: statusOf(d.balance, d.friend) })}</div>
-    <div class="balance">
-      <div class="amount">${mood === 'even' ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>` : money(d.balance, d.currency)}</div>
-      <div class="status">${statusOf(d.balance, d.friend)}</div>
+    <div class="window">${qamariya({ mood, variant: 'full', label: statusOfB(bals, d.friend) })}</div>
+    <div class="balance">${list.length > 1
+      ? `<div class="multi">${list.map(([c, v]) => `<div class="bal-line ${v > 0 ? 'pos' : 'neg'}">
+           <span class="amount">${money(v, c)}</span><small>${statusOf(v, d.friend)}</small></div>`).join('')}</div>`
+      : `<div class="amount">${mood === 'even' ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>` : money(list[0][1], list[0][0])}</div>
+         <div class="status">${statusOfB(bals, d.friend)}</div>`}
     </div>
     <div class="actions">
       <button class="act plus" data-act="add" data-dir="1"><span class="big">${T('plus')}</span><small>${T('plusSub')}</small></button>
@@ -180,7 +198,7 @@ function entryRow(e, d) {
     return `<li class="entry settle">
       <span class="sign">✦</span>
       <span class="meta"><b>${T('settled')}</b><small><bdi>${who}</bdi> · <bdi>${when(e.created_at)}</bdi></small></span>
-      <span class="amt">${money(e.amount, d.currency)}</span>
+      <span class="amt">${money(e.amount, e.currency || d.currency)}</span>
       <span class="ops">${e.mine ? `<button class="link" data-act="undo" data-id="${e.id}">${T('undo')}</button>` : ''}</span>
     </li>`;
   }
@@ -188,11 +206,12 @@ function entryRow(e, d) {
   return `<li class="entry ${pos ? 'pos' : 'neg'} ${e.disputed ? 'disputed' : ''}">
     <span class="sign">${pos ? '+' : '−'}</span>
     <span class="meta"><b>${esc(e.note) || (pos ? T('lentPos') : T('lentNeg'))}</b>
-      <small><bdi>${who}</bdi> · <bdi>${when(e.created_at)}</bdi>${e.disputed ? ` · <em>${T('disputed')}</em>` : ''}</small></span>
-    <span class="amt">${money(e.amount, d.currency)}</span>
+      <small><bdi>${who}</bdi> · <bdi>${when(e.created_at)}</bdi>${e.disputed ? ` · <em>${T('disputed')}</em>` : ''}</small>
+      ${e.disputed && e.dispute_reason ? `<span class="reason">«<bdi>${esc(e.dispute_reason)}</bdi>»</span>` : ''}</span>
+    <span class="amt">${money(e.amount, e.currency || d.currency)}</span>
     <span class="ops">${e.mine
       ? `<button class="link" data-act="undo" data-id="${e.id}">${T('undo')}</button>`
-      : `<button class="link" data-act="dispute" data-id="${e.id}">${e.disputed ? T('undispute') : T('dispute')}</button>`}</span>
+      : `<button class="link" data-act="dispute" data-id="${e.id}" data-disputed="${e.disputed ? 1 : 0}">${e.disputed ? T('undispute') : T('dispute')}</button>`}</span>
   </li>`;
 }
 
@@ -253,8 +272,8 @@ async function refreshHome() {
     let changed = false;
     for (const s of list || []) {
       const x = tabs.find((x) => x.token === s.token);
-      if (x && (x.balance !== s.balance || x.friend !== s.friend || x.updatedAt !== s.updated_at)) {
-        Object.assign(x, { balance: s.balance, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side });
+      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at)) {
+        Object.assign(x, { balances: s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side });
         changed = true;
       }
     }
@@ -306,9 +325,26 @@ function entrySheet(dir) {
     <label class="amount-field"><span class="sr">${T('amount')}</span>
       <input name="amount" inputmode="decimal" autocomplete="off" required autofocus placeholder="${nf().format(0)}" dir="ltr">
       <span class="cur">${esc(curLabel(d.currency))}</span></label>
+    <div class="chips center-chips" role="radiogroup" aria-label="${T('currency')}">${currencyChips(d.currency)}</div>
     <label class="field"><span>${T('note')}</span><input name="note" maxlength="140" placeholder="${T('notePh')}"></label>
     <button class="btn big ${dir > 0 ? 'pos' : 'neg'}" type="submit">${T('save')}</button>
-  </form>`);
+  </form>`, (el) => el.addEventListener('change', (e) => {
+    if (e.target.name === 'currency') $('.amount-field .cur', el).textContent = curLabel(e.target.value);
+  }));
+}
+
+function disputeSheet(id) {
+  sheet(`<form class="stack" data-form="dispute" data-id="${esc(id)}">
+    <h2 class="sheet-title">${T('disputeTitle')}</h2>
+    <label class="field"><span>${T('disputeReason')}</span>
+      <input name="reason" maxlength="60" autofocus autocomplete="off" placeholder="${T('disputePh')}"></label>
+    <small class="muted counter-chars" dir="ltr"><bdi>${nf().format(0)}</bdi>/${nf().format(60)}</small>
+    <div class="row-btns"><button class="btn" type="button" data-close>${T('cancel')}</button>
+      <button class="btn neg" type="submit">${T('disputeSend')}</button></div>
+  </form>`, (el) => {
+    const inp = $('input', el), n = $('.counter-chars bdi', el);
+    inp.addEventListener('input', () => { n.textContent = nf().format(inp.value.length); });
+  });
 }
 
 function confirmSheet({ title, body = '', ok, danger = false, onOk }) {
@@ -325,7 +361,7 @@ function shareSheet(first = false) {
   const url = linkFor(d.share_token);
   const text = T('shareText', d.me, d.friend);
   sheet(`<div class="stack share">
-    <div class="share-art">${qamariya({ mood: moodOf(d.balance), variant: 'mini' })}</div>
+    <div class="share-art">${qamariya({ mood: moodOfB(balsOf(d)), variant: 'mini' })}</div>
     <h2 class="sheet-title">${T('shareTitle', esc(d.friend))}</h2>
     <p class="muted">${T('shareHint')}</p>
     <div class="linkbox" dir="ltr"><span>${esc(url)}</span></div>
@@ -440,6 +476,7 @@ document.addEventListener('click', async (e) => {
       if (r) { setData(r); toast(T('settledToast')); celebrate(); }
     } });
   }
+  else if (act === 'dispute' && el.dataset.disputed !== '1') disputeSheet(el.dataset.id);
   else if (act === 'undo' || act === 'dispute') {
     const r = await busy(el, () => (act === 'undo' ? api.remove : api.dispute)(current.token, el.dataset.id));
     if (r) { setData(r); if (act === 'undo') toast(T('undone')); }
@@ -478,8 +515,13 @@ document.addEventListener('submit', async (e) => {
     const amount = parseAmount(fd.get('amount'));
     const input = form.querySelector('[name=amount]');
     if (!amount || amount <= 0) { input.focus(); input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 400); return; }
-    const r = await busy(btn, () => api.add(current.token, amount * Number(form.dataset.dir), String(fd.get('note') || '')));
-    if (r) { closeSheet(); setData(r); if (moodOf(r.balance) === 'even') celebrate(); }
+    const cur = String(fd.get('currency') || current.data.currency);
+    const r = await busy(btn, () => api.add(current.token, amount * Number(form.dataset.dir), String(fd.get('note') || ''), cur));
+    if (r) { closeSheet(); setData(r); if (moodOfB(balsOf(r)) === 'even') celebrate(); }
+  }
+  else if (kind === 'dispute') {
+    const r = await busy(btn, () => api.dispute(current.token, form.dataset.id, String(fd.get('reason') || '').trim()));
+    if (r) { closeSheet(); setData(r); }
   }
   else if (kind === 'rename' || kind === 'welcome') {
     const name = String(fd.get('name')).trim();

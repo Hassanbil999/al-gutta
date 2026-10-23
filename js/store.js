@@ -25,10 +25,10 @@ const remote = {
   create: (me, friend, currency) => rpc('qy_create', { p_my_name: me, p_friend_name: friend, p_currency: currency }),
   get: (token) => rpc('qy_get', { p_token: token }),
   summaries: (tokens) => rpc('qy_summaries', { p_tokens: tokens }),
-  add: (token, amount, note) => rpc('qy_add', { p_token: token, p_amount: amount, p_note: note }),
+  add: (token, amount, note, currency) => rpc('qy_add', { p_token: token, p_amount: amount, p_note: note, p_currency: currency }),
   settle: (token) => rpc('qy_settle', { p_token: token }),
   remove: (token, id) => rpc('qy_remove', { p_token: token, p_id: id }),
-  dispute: (token, id) => rpc('qy_dispute', { p_token: token, p_id: id }),
+  dispute: (token, id, reason = '') => rpc('qy_dispute', { p_token: token, p_id: id, p_reason: reason }),
   rename: (token, name) => rpc('qy_rename', { p_token: token, p_name: name }),
 };
 
@@ -48,7 +48,15 @@ function find(db, token) {
   const l = db.ledgers.find((l) => l.a_token === token || l.b_token === token);
   return l ? { l, s: l.a_token === token ? 'a' : 'b' } : null;
 }
-function sumOf(db, id) { return r2(db.entries.filter((e) => e.ledger_id === id && !e.deleted).reduce((a, e) => a + e.amount, 0)); }
+function balancesOf(db, l, sg) {
+  const out = {};
+  for (const e of db.entries) if (e.ledger_id === l.id && !e.deleted) {
+    const c = e.currency || l.currency;
+    out[c] = r2((out[c] || 0) + e.amount * sg);
+  }
+  for (const c of Object.keys(out)) if (!out[c]) delete out[c];
+  return out;
+}
 function view(db, token) {
   const f = find(db, token);
   if (!f) return null;
@@ -59,10 +67,11 @@ function view(db, token) {
     friend: s === 'a' ? l.b_name : l.a_name,
     currency: l.currency, created_at: l.created_at, updated_at: l.updated_at,
     share_token: s === 'a' ? l.b_token : null,
-    balance: sumOf(db, l.id) * sg,
+    balance: balancesOf(db, l, sg)[l.currency] || 0,
+    balances: balancesOf(db, l, sg),
     entries: db.entries.filter((e) => e.ledger_id === l.id && !e.deleted)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, created_at: e.created_at })),
+      .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, currency: e.currency || l.currency, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, dispute_reason: e.dispute_reason || '', created_at: e.created_at })),
   };
 }
 function mutate(token, fn) {
@@ -88,22 +97,25 @@ const local = {
     const db = load();
     return tokens.map((t) => { const v = view(db, t); return v && { token: t, ...v, entries: undefined }; }).filter(Boolean);
   }),
-  add: (token, amount, note) => later(() => mutate(token, (db, l, s) => {
+  add: (token, amount, note, currency) => later(() => mutate(token, (db, l, s) => {
     amount = r2(amount);
     if (!amount || Math.abs(amount) > 1e12) throw new Error('bad amount');
-    db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: amount * (s === 'a' ? 1 : -1), note: clean(note, 140), by_side: s, kind: 'entry', disputed: false, deleted: false });
+    const cur = currency || l.currency;
+    db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: amount * (s === 'a' ? 1 : -1), currency: cur, note: clean(note, 140), by_side: s, kind: 'entry', disputed: false, dispute_reason: '', deleted: false });
+    l.currency = cur;
   })),
   settle: (token) => later(() => mutate(token, (db, l, s) => {
-    const bal = sumOf(db, l.id);
-    if (bal) db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: -bal, note: '', by_side: s, kind: 'settle', disputed: false, deleted: false });
+    for (const [cur, bal] of Object.entries(balancesOf(db, l, 1))) {
+      db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: -bal, currency: cur, note: '', by_side: s, kind: 'settle', disputed: false, dispute_reason: '', deleted: false });
+    }
   })),
   remove: (token, id) => later(() => mutate(token, (db, l, s) => {
     const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side === s);
     if (e) e.deleted = true;
   })),
-  dispute: (token, id) => later(() => mutate(token, (db, l, s) => {
+  dispute: (token, id, reason = '') => later(() => mutate(token, (db, l, s) => {
     const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side !== s && e.kind === 'entry');
-    if (e) e.disputed = !e.disputed;
+    if (e) { e.dispute_reason = e.disputed ? '' : clean(reason, 60); e.disputed = !e.disputed; }
   })),
   rename: (token, name) => later(() => mutate(token, (db, l, s) => {
     name = clean(name, 40);

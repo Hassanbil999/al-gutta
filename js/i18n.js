@@ -32,6 +32,8 @@ export const STR = {
     isThisYou: 'هذا اسمك؟ عدّله إذا تشتي',
     ownLink: 'هذا رابط صاحبك — فتحنا لك نسختك.', renameTab: 'اسمي في هذا الحساب', saved: 'تم ✓',
     lentPos: 'لك عنده', lentNeg: 'عليك له', tabs: 'حساباتي',
+    mixed: 'لك وعليك', disputeTitle: 'إيش اللي مش صحيح؟', disputeReason: 'السبب (اختياري، باختصار)',
+    disputePh: 'مثلاً: كانت ٢٠٠٠ مش ٣٠٠٠', disputeSend: 'اعترض',
   },
   en: {
     appName: 'Al-Gutta Ya Abdo',
@@ -65,6 +67,8 @@ export const STR = {
     isThisYou: 'Is this your name? Change it if you like',
     ownLink: "That's your friend's link — opened your copy instead.", renameTab: 'My name on this tab', saved: 'Saved ✓',
     lentPos: 'They owe you', lentNeg: 'You owe them', tabs: 'My tabs',
+    mixed: 'Both ways', disputeTitle: "What's not right?", disputeReason: 'Reason (optional, short)',
+    disputePh: 'e.g. it was 2000, not 3000', disputeSend: 'Flag it',
   },
 };
 
