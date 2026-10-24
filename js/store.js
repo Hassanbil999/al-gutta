@@ -4,8 +4,18 @@
 const cfg = window.QY_CONFIG || {};
 export const isCloud = !!(cfg.supabaseUrl && cfg.supabaseKey);
 
+// a private id for this phone; shared links lock to the first phone that opens them
+const DEVICE = (() => {
+  try {
+    let d = localStorage.getItem('qy.device');
+    if (!d) { d = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('qy.device', d); }
+    return d;
+  } catch { return ''; }
+})();
+
 async function rpc(fn, args) {
   const headers = { 'Content-Type': 'application/json', apikey: cfg.supabaseKey };
+  if (DEVICE) headers['x-qy-device'] = DEVICE;
   if (cfg.supabaseKey.startsWith('eyJ')) headers.Authorization = 'Bearer ' + cfg.supabaseKey;
   const r = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + '/rest/v1/rpc/' + fn, {
     method: 'POST', headers, body: JSON.stringify(args),
@@ -28,6 +38,7 @@ const remote = {
   add: (token, amount, note, currency) => rpc('qy_add', { p_token: token, p_amount: amount, p_note: note, p_currency: currency }),
   settle: (token) => rpc('qy_settle', { p_token: token }),
   settleAnswer: (token, accept) => rpc('qy_settle_answer', { p_token: token, p_accept: accept }),
+  newLink: (token) => rpc('qy_new_link', { p_token: token }),
   remove: (token, id) => rpc('qy_remove', { p_token: token, p_id: id }),
   dispute: (token, id, reason = '') => rpc('qy_dispute', { p_token: token, p_id: id, p_reason: reason }),
   rename: (token, name) => rpc('qy_rename', { p_token: token, p_name: name }),
@@ -142,6 +153,12 @@ const local = {
     save(db); return view(db, token);
   }),
   settleAnswer: (token, accept) => later(() => answer(load(), token, accept)),
+  newLink: (token) => later(() => {
+    const db = load(), l = db.ledgers.find((l) => l.a_token === token);
+    if (!l) throw new Error('not found');
+    l.b_token = rid(); l.updated_at = now(); save(db);
+    return { share_token: l.b_token };
+  }),
   remove: (token, id) => later(() => mutate(token, (db, l, s) => {
     const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side === s && e.kind === 'entry' && !e.deleted && !settledAfter(db, e));
     if (e) { e.deleted = true; e.deleted_at = now(); clearSettle(l); }

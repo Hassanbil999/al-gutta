@@ -172,7 +172,7 @@ function tabRow(x) {
   const b = balsOf(x), mood = moodOfB(b);
   return `<li><button class="tab-row mood-${mood}" data-act="open" data-token="${esc(x.token)}">
     <span class="mini">${qamariya({ mood, variant: 'mini' })}</span>
-    <span class="who"><b>${esc(x.friend)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : x.settle === 'theirs' ? `<em class="wait">✦ ${T('settleAskShort')}</em>` : x.settle === 'mine' ? `<em class="wait">${T('settleWaitShort')}</em>` : statusOfB(b, x.friend)}</small></span>
+    <span class="who"><b>${esc(x.friend)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : x.locked ? `<em class="wait no">🔒 ${T('lockedShort')}</em>` : x.settle === 'theirs' ? `<em class="wait">✦ ${T('settleAskShort')}</em>` : x.settle === 'mine' ? `<em class="wait">${T('settleWaitShort')}</em>` : statusOfB(b, x.friend)}</small></span>
     <span class="amt">${balList(b, x.currency).map(([c, v]) => signed(v, c)).join('')}</span>
   </button></li>`;
 }
@@ -181,6 +181,18 @@ function renderCounter() {
   const c = current;
   if (!c) return;
   const d = c.data;
+  if (c.locked) {
+    const inList = tabs.some((x) => x.token === c.token);
+    app.innerHTML = `${header({ title: '', back: true })}
+      <main class="counter"><div class="empty-home locked">
+        <div class="lock-win">${qamariya({ mood: 'minus', variant: 'mini' })}<span>🔒</span></div>
+        <h2>${T('lockedTitle')}</h2>
+        <p>${T('lockedBody', esc(c.locked.friend || ''))}</p>
+        ${inList ? `<button class="btn ghost neg-text" data-act="remove-now">${ICON.trash} ${T('remove')}</button>` : ''}
+        <button class="btn" data-act="home">${T('backHome')}</button>
+      </div></main>`;
+    return;
+  }
   if (!d) {
     app.innerHTML = `${header({ title: '', back: true })}
       <main class="counter loading">${c.missing
@@ -275,6 +287,8 @@ function entryRow(e, d, settledAt = '') {
 
 // ---------- counter data ----------
 async function openCounter(token) {
+  const own = tabs.find((x) => x.shareToken === token);
+  if (own) { toast(T('ownLink')); location.replace('#/t/' + own.token); return; }
   current = { token, data: LS.get('qy.snap.' + token, null) };
   renderCounter();
   const first = !tabs.some((x) => x.token === token);
@@ -289,6 +303,7 @@ async function refresh({ first = false } = {}) {
     const d = await api.get(c.token);
     if (current !== c) return;
     if (!d) { c.missing = true; c.data = null; renderCounter(); return; }
+    if (d.locked) { c.locked = d; c.data = null; renderCounter(); stopPoll(); return; }
     // opened the link I sent to my friend? go to my own side instead
     const mine = tabs.find((x) => x.ledgerId === d.ledger_id && x.token !== c.token);
     if (mine && d.side === 'b' && mine.side === 'a') {
@@ -353,8 +368,8 @@ async function refreshHome() {
     let changed = false;
     for (const s of list || []) {
       const x = tabs.find((x) => x.token === s.token);
-      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at || (x.status || 'active') !== (s.status || 'active') || (x.settle || null) !== (s.settle || null))) {
-        Object.assign(x, { balances: s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side, status: s.status || 'active', settle: s.settle || null });
+      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at || (x.status || 'active') !== (s.status || 'active') || (x.settle || null) !== (s.settle || null) || !!x.locked !== !!s.locked)) {
+        Object.assign(x, { balances: s.locked ? x.balances : s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side, status: s.status || 'active', settle: s.settle || null, locked: !!s.locked });
         changed = true;
       }
     }
@@ -493,6 +508,9 @@ function menuSheet() {
     <h2 class="sheet-title">${esc(d.friend)}</h2>
     <label class="field"><span>${T('renameTab')}</span><input name="name" maxlength="40" required value="${esc(d.me)}"></label>
     <button class="btn primary" type="submit">${T('save')}</button>
+    ${d.side === 'a' ? `<div class="link-state ${d.link_locked ? 'on' : ''}">
+        <p>${d.link_locked ? `🔒 ${T('linkLocked', esc(d.friend))}` : T('linkFree', esc(d.friend))}</p>
+        <button class="btn ghost" type="button" data-act="new-link">${ICON.link} ${T('newLink')}</button></div>` : ''}
     <button class="btn ghost neg-text" type="button" data-act="remove">${ICON.trash} ${T('remove')}</button>
   </form>`);
 }
@@ -855,7 +873,9 @@ function celebrate() {
 // ---------- events ----------
 async function busy(btn, fn) {
   if (btn) btn.disabled = true;
-  try { return await fn(); } catch (e) { console.error(e); toast(T('error')); } finally { if (btn) btn.disabled = false; }
+  try { return await fn(); }
+  catch (e) { console.error(e); toast(String(e.message).includes('locked') ? T('lockedTitle') : T('error')); if (String(e.message).includes('locked') && current) refresh(); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 document.addEventListener('click', async (e) => {
@@ -882,6 +902,17 @@ document.addEventListener('click', async (e) => {
   }
   else if (act === 'settings') settingsSheet();
   else if (act === 'invite') inviteSheet();
+  else if (act === 'new-link') {
+    const d = current.data;
+    confirmSheet({ title: T('newLink'), body: T('newLinkQ', esc(d.friend)), ok: T('newLink'), onOk: async () => {
+      const r = await busy(null, () => api.newLink(current.token));
+      if (!r) return;
+      current.data = { ...d, share_token: r.share_token, link_locked: false };
+      const t = tabs.find((x) => x.token === current.token); if (t) { t.shareToken = r.share_token; saveTabs(); }
+      LS.set('qy.snap.' + current.token, current.data);
+      shareSheet(true);
+    } });
+  }
   else if (act === 'remove-now') {
     const tok = current.token;
     tabs = tabs.filter((x) => x.token !== tok); saveTabs(); LS.del('qy.snap.' + tok);

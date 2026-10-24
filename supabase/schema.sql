@@ -56,6 +56,9 @@ alter table public.qy_ledgers add column if not exists settle_by char(1);
 alter table public.qy_ledgers add column if not exists settle_at timestamptz;
 alter table public.qy_ledgers add column if not exists settle_snapshot jsonb;
 alter table public.qy_entries add column if not exists deleted_at timestamptz;
+-- v6: a shared link belongs to the first phone that opens it (each phone sends a private id)
+alter table public.qy_ledgers add column if not exists a_device text;
+alter table public.qy_ledgers add column if not exists b_device text;
 
 create index if not exists qy_entries_ledger on public.qy_entries(ledger_id, created_at desc);
 
@@ -85,6 +88,31 @@ language sql immutable as $$
   select p in ('USD','LBP','YER','SAR','AED','EUR','EGP');
 $$;
 
+-- the private id of the phone making this request (sent by the app as a header)
+create or replace function public._qy_device() returns text
+language sql stable as $$
+  select nullif(left(coalesce(current_setting('request.headers', true)::json->>'x-qy-device', ''), 64), '');
+$$;
+
+-- phone lock for the shared side of a tab: the first phone to use the link owns it.
+-- The tab creator's own phone never claims it (opening your own link by mistake is harmless).
+create or replace function public._qy_guard(p_token text) returns void
+language plpgsql volatile security definer set search_path = public as $$
+declare dev text := _qy_device(); l qy_ledgers;
+begin
+  select * into l from qy_ledgers where b_token = p_token;
+  if not found then return; end if;                       -- creator side, or unknown token
+  if l.b_device is null then
+    if dev is not null and dev is distinct from l.a_device then
+      update qy_ledgers set b_device = dev where id = l.id;
+    end if;
+    return;
+  end if;
+  if dev is distinct from l.b_device and dev is distinct from l.a_device then
+    raise exception 'locked';
+  end if;
+end $$;
+
 -- non-zero balance per currency, from one side's point of view: {"YER": 3000, "USD": -20}
 create or replace function public._qy_balances(p_lid uuid, p_cur text, p_sg int) returns json
 language sql stable as $$
@@ -96,9 +124,17 @@ $$;
 
 -- the view of a tab from one person's side
 create or replace function public.qy_get(p_token text) returns json
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1); sg int;
 begin
+  begin
+    perform _qy_guard(p_token);
+  exception when raise_exception then
+    if sqlerrm = 'locked' then
+      return json_build_object('locked', true, 'friend', (select a_name from qy_ledgers where b_token = p_token));
+    end if;
+    raise;
+  end;
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then return null; end if;
   s  := case when l.a_token = p_token then 'a' else 'b' end;
@@ -113,6 +149,7 @@ begin
     'updated_at', l.updated_at,
     'share_token', case when s = 'a' then l.b_token else null end,
     'status',     l.status,
+    'link_locked', case when s = 'a' then l.b_device is not null else null end,
     'settle_request', case when l.settle_by is null then null else json_build_object(
                         'by_me', l.settle_by = s, 'at', l.settle_at,
                         'balances', (select coalesce(json_object_agg(x.key, x.value::numeric * sg), '{}'::json)
@@ -147,7 +184,9 @@ begin
       'currency', l.currency, 'updated_at', l.updated_at, 'status', l.status,
       'settle', case when l.settle_by is null then null
                      when l.settle_by = case when l.a_token = t.tok then 'a' else 'b' end then 'mine' else 'theirs' end,
-      'balances', _qy_balances(l.id, l.currency, case when l.a_token = t.tok then 1 else -1 end)))
+      'locked', l.b_token = t.tok and l.b_device is not null and _qy_device() is distinct from l.b_device and _qy_device() is distinct from l.a_device,
+      'balances', case when l.b_token = t.tok and l.b_device is not null and _qy_device() is distinct from l.b_device and _qy_device() is distinct from l.a_device
+                       then null else _qy_balances(l.id, l.currency, case when l.a_token = t.tok then 1 else -1 end) end))
     from unnest(p_tokens) as t(tok)
     join qy_ledgers l on l.a_token = t.tok or l.b_token = t.tok), '[]'::json);
 end $$;
@@ -160,8 +199,8 @@ declare me text := _qy_clean(p_my_name, 40);
 begin
   if me = '' or fr = '' then raise exception 'name required'; end if;
   if not _qy_cur_ok(p_currency) then raise exception 'bad currency'; end if;
-  insert into qy_ledgers(currency, a_name, b_name, a_token, b_token)
-  values (p_currency, me, fr, ta, tb);
+  insert into qy_ledgers(currency, a_name, b_name, a_token, b_token, a_device)
+  values (p_currency, me, fr, ta, tb, _qy_device());
   return json_build_object('token', ta, 'share_token', tb);
 end $$;
 
@@ -169,6 +208,7 @@ create or replace function public.qy_add(p_token text, p_amount numeric, p_note 
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1); cur text;
 begin
+  perform _qy_guard(p_token);
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
@@ -192,6 +232,7 @@ create or replace function public.qy_settle(p_token text)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1); snap jsonb;
 begin
+  perform _qy_guard(p_token);
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
@@ -210,6 +251,7 @@ create or replace function public.qy_settle_answer(p_token text, p_accept boolea
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1); cur jsonb;
 begin
+  perform _qy_guard(p_token);
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
@@ -235,6 +277,7 @@ create or replace function public.qy_remove(p_token text, p_id uuid)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1);
 begin
+  perform _qy_guard(p_token);
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
@@ -254,6 +297,7 @@ create or replace function public.qy_dispute(p_token text, p_id uuid, p_reason t
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1);
 begin
+  perform _qy_guard(p_token);
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
@@ -277,6 +321,7 @@ begin
   if json_array_length(p_items) not between 1 and 60 or p_count not between 2 and 61 then raise exception 'bad size'; end if;
   if p_total is null or p_total <= 0 or p_total > 1e12 then raise exception 'bad total'; end if;
   for it in select * from json_array_elements(p_items) loop
+    perform _qy_guard(it->>'token');
     select * into l from qy_ledgers where a_token = it->>'token' or b_token = it->>'token';
     if not found then raise exception 'not found'; end if;
     if l.status <> 'active' then raise exception 'not active'; end if;
@@ -321,8 +366,8 @@ begin
   if waiting >= 20 then raise exception 'too many requests'; end if;
   select count(*) into recent from qy_ledgers where invite_id = i.id and created_at > now() - interval '10 minutes';
   if recent >= 5 then raise exception 'slow down'; end if;
-  insert into qy_ledgers(currency, a_name, b_name, a_token, b_token, status, invite_id)
-  values (p_currency, i.owner_name, n, _qy_token(), tb, 'pending', i.id);
+  insert into qy_ledgers(currency, a_name, b_name, a_token, b_token, status, invite_id, b_device)
+  values (p_currency, i.owner_name, n, _qy_token(), tb, 'pending', i.id, _qy_device());
   return json_build_object('token', tb);
 end $$;
 
@@ -352,7 +397,7 @@ begin
   select * into l from qy_ledgers where id = p_ledger and invite_id = i.id and status = 'pending';
   if not found then return null; end if;
   if p_accept then
-    update qy_ledgers set status = 'active', updated_at = now() where id = l.id;
+    update qy_ledgers set status = 'active', updated_at = now(), a_device = coalesce(a_device, _qy_device()) where id = l.id;
     return json_build_object('token', l.a_token);
   end if;
   update qy_ledgers set status = 'declined', updated_at = now() where id = l.id;
@@ -373,17 +418,29 @@ begin
   return json_build_object('code', i.code, 'enabled', i.enabled, 'owner', i.owner_name);
 end $$;
 
+-- creator replaces the friend's link (new phone, or the link reached the wrong person).
+-- The old link stops working; the next phone to open the new one owns it.
+create or replace function public.qy_new_link(p_token text) returns json
+language plpgsql volatile security definer set search_path = public as $$
+declare nb text := _qy_token();
+begin
+  update qy_ledgers set b_token = nb, b_device = null, updated_at = now() where a_token = p_token;
+  if not found then raise exception 'not found'; end if;
+  return json_build_object('share_token', nb);
+end $$;
+
 create or replace function public.qy_rename(p_token text, p_name text)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare n text := _qy_clean(p_name, 40);
 begin
+  perform _qy_guard(p_token);
   if n = '' then raise exception 'name required'; end if;
   update qy_ledgers set a_name = n, updated_at = now() where a_token = p_token;
   update qy_ledgers set b_name = n, updated_at = now() where b_token = p_token;
   return qy_get(p_token);
 end $$;
 
-revoke execute on function public._qy_token(), public._qy_balances(uuid, text, int)
+revoke execute on function public._qy_token(), public._qy_balances(uuid, text, int), public._qy_guard(text), public._qy_device()
   from public, anon, authenticated;
 grant execute on function public.qy_get(text), public.qy_summaries(text[]),
   public.qy_create(text, text, text), public.qy_add(text, numeric, text, text),
@@ -391,7 +448,7 @@ grant execute on function public.qy_get(text), public.qy_summaries(text[]),
   public.qy_rename(text, text), public.qy_split(json, text, text, numeric, int),
   public.qy_invite_create(text), public.qy_invite_info(text), public.qy_join(text, text, text),
   public.qy_invite_requests(text), public.qy_invite_decide(text, uuid, boolean),
-  public.qy_invite_set(text, boolean, boolean, text) to anon, authenticated;
+  public.qy_invite_set(text, boolean, boolean, text), public.qy_new_link(text) to anon, authenticated;
 
 -- make the API see the new functions right away
 notify pgrst, 'reload schema';

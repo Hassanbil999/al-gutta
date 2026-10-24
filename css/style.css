@@ -391,3 +391,13 @@ bdi.money .cur { font-size: .62em; opacity: .75; font-family: var(--f-body); fon
 .tabs li.leaving { overflow: hidden; animation: rowLeave .4s ease forwards; }
 @keyframes rowLeave { 0% { opacity: 1; } 60% { opacity: 0; transform: translateX(24px) scale(.97); max-height: 200px; } 100% { opacity: 0; max-height: 0; margin: 0; } }
 @media (prefers-reduced-motion: reduce) { .tabs li.leaving { animation-duration: .01s; } }
+
+/* ---------- v7: links locked to one phone ---------- */
+.empty-home.locked h2 { margin: 0; font: 700 24px var(--f-display); color: var(--ink); }
+.empty-home.locked p { max-width: 320px; font-size: 16px; line-height: 1.6; }
+.lock-win { position: relative; width: 120px; }
+.lock-win svg { width: 100%; height: auto; opacity: .55; }
+.lock-win span { position: absolute; inset: auto 0 -6px 0; text-align: center; font-size: 34px; }
+.link-state { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.link-state p { margin: 0; color: var(--ink-2); font-size: 14px; }
+.link-state.on p { color: var(--pos); font-weight: 600; }
