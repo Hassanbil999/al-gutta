@@ -31,12 +31,18 @@ const remote = {
   dispute: (token, id, reason = '') => rpc('qy_dispute', { p_token: token, p_id: id, p_reason: reason }),
   rename: (token, name) => rpc('qy_rename', { p_token: token, p_name: name }),
   split: (items, note, currency, total, count) => rpc('qy_split', { p_items: items, p_note: note, p_currency: currency, p_total: total, p_count: count }),
+  inviteCreate: (name) => rpc('qy_invite_create', { p_name: name }),
+  inviteInfo: (code) => rpc('qy_invite_info', { p_code: code }),
+  inviteSet: (key, enabled, reset, name) => rpc('qy_invite_set', { p_key: key, p_enabled: enabled, p_reset: reset, p_name: name ?? null }),
+  join: (code, name, currency) => rpc('qy_join', { p_code: code, p_name: name, p_currency: currency }),
+  inviteRequests: (key) => rpc('qy_invite_requests', { p_key: key }),
+  inviteDecide: (key, ledger, accept) => rpc('qy_invite_decide', { p_key: key, p_ledger: ledger, p_accept: accept }),
 };
 
 // ---- demo: mirrors supabase/schema.sql in localStorage ----
 
 const DBK = 'qy.demo.db';
-const load = () => { try { return JSON.parse(localStorage.getItem(DBK)) || { ledgers: [], entries: [] }; } catch { return { ledgers: [], entries: [] }; } };
+const load = () => { let db; try { db = JSON.parse(localStorage.getItem(DBK)); } catch {} db ||= { ledgers: [], entries: [] }; db.invites ||= []; return db; };
 const save = (db) => { try { localStorage.setItem(DBK, JSON.stringify(db)); } catch {} };
 const rid = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
   .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -68,6 +74,7 @@ function view(db, token) {
     friend: s === 'a' ? l.b_name : l.a_name,
     currency: l.currency, created_at: l.created_at, updated_at: l.updated_at,
     share_token: s === 'a' ? l.b_token : null,
+    status: l.status || 'active',
     balance: balancesOf(db, l, sg)[l.currency] || 0,
     balances: balancesOf(db, l, sg),
     entries: db.entries.filter((e) => e.ledger_id === l.id && !e.deleted)
@@ -75,9 +82,10 @@ function view(db, token) {
       .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, currency: e.currency || l.currency, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, dispute_reason: e.dispute_reason || '', group_id: e.group_id || null, split_total: e.split_total ?? null, split_count: e.split_count ?? null, created_at: e.created_at })),
   };
 }
-function mutate(token, fn) {
+function mutate(token, fn, any = false) {
   const db = load(), f = find(db, token);
   if (!f) throw new Error('not found');
+  if (!any && (f.l.status || 'active') !== 'active') throw new Error('not active');
   fn(db, f.l, f.s);
   f.l.updated_at = now();
   save(db);
@@ -133,11 +141,53 @@ const local = {
     save(db);
     return { group_id: g, items: out };
   }),
+  inviteCreate: (name) => later(() => {
+    const db = load(), i = { id: uuid(), owner_name: clean(name, 40), code: rid().slice(0, 16), owner_key: rid(), enabled: true };
+    db.invites.push(i); save(db);
+    return { code: i.code, key: i.owner_key, enabled: true, owner: i.owner_name };
+  }),
+  inviteInfo: (code) => later(() => { const i = load().invites.find((i) => i.code === code); return i ? { owner: i.owner_name, enabled: i.enabled } : null; }),
+  inviteSet: (key, enabled, reset, name) => later(() => {
+    const db = load(), i = db.invites.find((i) => i.owner_key === key);
+    if (!i) return null;
+    if (enabled != null) i.enabled = enabled;
+    if (reset) i.code = rid().slice(0, 16);
+    if (name && clean(name, 40)) i.owner_name = clean(name, 40);
+    save(db);
+    return { code: i.code, enabled: i.enabled, owner: i.owner_name };
+  }),
+  join: (code, name, currency) => later(() => {
+    const db = load(), i = db.invites.find((i) => i.code === code);
+    if (!i || !i.enabled) throw new Error('invite closed');
+    name = clean(name, 40);
+    if (!name) throw new Error('name required');
+    const mine = db.ledgers.filter((l) => l.invite_id === i.id);
+    if (mine.filter((l) => l.status === 'pending').length >= 20) throw new Error('too many requests');
+    if (mine.filter((l) => Date.now() - Date.parse(l.created_at) < 600000).length >= 5) throw new Error('slow down');
+    const l = { id: uuid(), created_at: now(), updated_at: now(), currency, a_name: i.owner_name, b_name: name, a_token: rid(), b_token: rid(), status: 'pending', invite_id: i.id };
+    db.ledgers.push(l); save(db);
+    return { token: l.b_token };
+  }),
+  inviteRequests: (key) => later(() => {
+    const db = load(), i = db.invites.find((i) => i.owner_key === key);
+    if (!i) return null;
+    return { code: i.code, enabled: i.enabled, owner: i.owner_name,
+      pending: db.ledgers.filter((l) => l.invite_id === i.id && l.status === 'pending').map((l) => ({ ledger_id: l.id, name: l.b_name, created_at: l.created_at })) };
+  }),
+  inviteDecide: (key, ledger, accept) => later(() => {
+    const db = load(), i = db.invites.find((i) => i.owner_key === key);
+    if (!i) throw new Error('not found');
+    const ls = db.ledgers.filter((l) => l.invite_id === i.id && l.status === 'pending' && (ledger == null || l.id === ledger));
+    if (!ls.length) return null;
+    for (const l of ls) { l.status = accept ? 'active' : 'declined'; l.updated_at = now(); }
+    save(db);
+    return accept ? { token: ls[0].a_token } : { declined: true };
+  }),
   rename: (token, name) => later(() => mutate(token, (db, l, s) => {
     name = clean(name, 40);
     if (!name) throw new Error('name required');
     if (s === 'a') l.a_name = name; else l.b_name = name;
-  })),
+  }, true)),
 };
 
 export const api = isCloud ? remote : local;

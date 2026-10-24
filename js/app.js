@@ -19,6 +19,7 @@ const ICON = {
   wa: '<svg viewBox="0 0 24 24"><path d="M4 20l1.3-4A8 8 0 1112 20a8 8 0 01-3.9-1z"/><path d="M9 9.5c.3 2.3 2.2 4.3 4.5 4.8l1.2-1.2 1.8.8c-.2 1-1 1.6-2 1.6A6 6 0 017.5 9.5c0-1 .6-1.8 1.6-2l.8 1.8z" class="fill"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   divide: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/><circle class="fill" cx="12" cy="6.2" r="1.7"/><circle class="fill" cx="12" cy="17.8" r="1.7"/></svg>',
+  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 006.4 0l3-3a4.5 4.5 0 00-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 00-6.4 0l-3 3a4.5 4.5 0 006.4 6.4l1.2-1.2"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
 };
 
@@ -31,6 +32,8 @@ const saveTabs = () => LS.set('qy.tabs', tabs);
 let splits = LS.get('qy.splits', []);   // group expenses I paid for (on this device)
 const saveSplits = () => LS.set('qy.splits', splits);
 let homeView = 'friends';      // 'friends' | 'splits'
+let requests = [];             // people asking to open a tab through my invite link
+let homeTimer = null;
 let current = null;            // { token, data, offline, missing }
 let pollTimer = null;
 let installPrompt = null;
@@ -74,7 +77,7 @@ function upsertTab(token, d) {
   if (!x) { x = { token }; tabs.unshift(x); }
   Object.assign(x, {
     friend: d.friend, me: d.me, currency: d.currency, balance: d.balance, balances: d.balances, side: d.side,
-    ledgerId: d.ledger_id, updatedAt: d.updated_at, shareToken: d.share_token ?? x.shareToken, lastCur: x.lastCur,
+    ledgerId: d.ledger_id, updatedAt: d.updated_at, shareToken: d.share_token ?? x.shareToken, lastCur: x.lastCur, status: d.status || 'active',
   });
   saveTabs();
   return x;
@@ -131,8 +134,9 @@ function renderHome() {
   const curs = Object.keys(totals);
   const totalLines = (k) => curs.filter((c) => totals[c][k] > 0.004).map((c) => `<div>${money(totals[c][k], c)}</div>`).join('') || `<div class="zero">${money(0, curs[0] || tabs[0]?.currency || 'USD')}</div>`;
   app.innerHTML = `
-  ${header({ title: T('appName'), actions: `<button class="icon-btn" data-act="settings" aria-label="${T('settings')}">${ICON.gear}</button>` })}
+  ${header({ title: T('appName'), actions: `<button class="icon-btn" data-act="invite" aria-label="${T('inviteTitle')}">${ICON.link}</button><button class="icon-btn" data-act="settings" aria-label="${T('settings')}">${ICON.gear}</button>` })}
   ${demoBanner()}
+  ${requests.length ? `<button class="req-banner" data-act="requests"><span class="dot">${nf().format(requests.length)}</span> ${T('reqBanner', nf().format(requests.length))}</button>` : ''}
   <main class="home">
     ${tabs.length ? `
       <div class="seg home-seg" role="tablist">
@@ -166,7 +170,7 @@ function tabRow(x) {
   const b = balsOf(x), mood = moodOfB(b);
   return `<li><button class="tab-row mood-${mood}" data-act="open" data-token="${esc(x.token)}">
     <span class="mini">${qamariya({ mood, variant: 'mini' })}</span>
-    <span class="who"><b>${esc(x.friend)}</b><small>${statusOfB(b, x.friend)}</small></span>
+    <span class="who"><b>${esc(x.friend)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : statusOfB(b, x.friend)}</small></span>
     <span class="amt">${balList(b, x.currency).map(([c, v]) => signed(v, c)).join('')}</span>
   </button></li>`;
 }
@@ -198,15 +202,16 @@ function renderCounter() {
       : `<div class="amount">${mood === 'even' ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>` : money(list[0][1], list[0][0])}</div>
          <div class="status">${statusOfB(bals, d.friend)}</div>`}
     </div>
-    <div class="actions">
+    ${d.status && d.status !== 'active' ? `<p class="banner ${d.status === 'declined' ? 'warn' : ''} pending-note">${d.status === 'pending' ? T('pendingNote', esc(d.friend)) : T('declinedNote', esc(d.friend))}</p>` : ''}
+    <div class="actions" ${d.status && d.status !== 'active' ? 'hidden' : ''}>
       <button class="act plus" data-act="add" data-dir="1"><span class="big">${T('plus')}</span><small>${T('plusSub')}</small></button>
       <button class="act minus" data-act="add" data-dir="-1"><span class="big">${T('minus')}</span><small>${T('minusSub')}</small></button>
     </div>
-    <div class="row2">
+    <div class="row2" ${d.status && d.status !== 'active' ? 'hidden' : ''}>
       ${mood !== 'even' ? `<button class="btn ghost" data-act="settle">✦ ${T('settle')}</button>` : ''}
       ${canShare ? `<button class="btn ghost" data-act="share">${ICON.share} ${T('share')}</button>` : ''}
     </div>
-    <section class="history">
+    <section class="history" ${d.status && d.status !== 'active' && !d.entries.length ? 'hidden' : ''}>
       <h2>${T('history')}</h2>
       ${d.entries.length ? `<ol>${d.entries.map((e) => entryRow(e, d)).join('')}</ol>`
                          : `<p class="muted center">${esc(T('empty')).replace('\n', '<br>')}</p>`}
@@ -267,7 +272,7 @@ async function refresh({ first = false } = {}) {
     upsertTab(c.token, d);
     if (!settings.name) { settings.name = d.me; saveSettings(); }
     if (changed) renderCounter();
-    if (first && d.side === 'b') welcomeSheet(d);
+    if (first && d.side === 'b' && d.status !== 'pending') welcomeSheet(d);
   } catch (e) {
     if (current !== c) return;
     if (!c.offline) { c.offline = true; renderCounter(); }
@@ -288,15 +293,32 @@ function startPoll() {
 }
 function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
 
+async function refreshRequests() {
+  if (!settings.invite?.key) { requests = []; return; }
+  try {
+    const r = await api.inviteRequests(settings.invite.key);
+    if (!r) return;
+    const changed = JSON.stringify(r.pending) !== JSON.stringify(requests);
+    requests = r.pending || [];
+    Object.assign(settings.invite, { code: r.code, enabled: r.enabled }); saveSettings();
+    if (changed && !current) renderHome();
+  } catch {}
+}
+function startHomePoll() {
+  clearInterval(homeTimer);
+  homeTimer = setInterval(() => { if (!current && !document.hidden && !sheetRoot.classList.contains('open')) { refreshHome(); } }, isCloud ? 12000 : 3000);
+}
+
 async function refreshHome() {
+  refreshRequests();
   if (!tabs.length) return;
   try {
     const list = await api.summaries(tabs.map((x) => x.token));
     let changed = false;
     for (const s of list || []) {
       const x = tabs.find((x) => x.token === s.token);
-      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at)) {
-        Object.assign(x, { balances: s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side });
+      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at || (x.status || 'active') !== (s.status || 'active'))) {
+        Object.assign(x, { balances: s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side, status: s.status || 'active' });
         changed = true;
       }
     }
@@ -545,6 +567,87 @@ function splitDetail(id) {
   </div>`);
 }
 
+// ---------- public invite link ----------
+const joinLink = (code) => location.origin + location.pathname.replace(/index\.html$/, '') + '#/join/' + code;
+
+function inviteSheet() {
+  const inv = settings.invite;
+  if (!inv) {
+    sheet(`<div class="stack center">
+      <div class="share-art">${qamariya({ mood: 'even', variant: 'mini' })}</div>
+      <h2 class="sheet-title">${T('inviteTitle')}</h2>
+      <p class="muted">${T('inviteIntro')}</p>
+      <ul class="guard">${T('inviteGuards').map((g) => `<li>${g}</li>`).join('')}</ul>
+      <button class="btn primary big" data-act="invite-create">${ICON.link} ${T('inviteCreate')}</button>
+    </div>`);
+    return;
+  }
+  const url = joinLink(inv.code);
+  const text = T('inviteText', settings.name);
+  sheet(`<div class="stack share">
+    <div class="share-art">${qamariya({ mood: inv.enabled ? 'even' : 'minus', variant: 'mini' })}</div>
+    <h2 class="sheet-title">${T('inviteTitle')}</h2>
+    <p class="muted">${inv.enabled ? T('inviteOn') : T('inviteOffNote')}</p>
+    <div class="linkbox ${inv.enabled ? '' : 'off'}" dir="ltr"><span>${esc(url)}</span></div>
+    ${inv.enabled ? `<div class="row-btns">
+      <a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}" target="_blank" rel="noopener">${ICON.wa} ${T('whatsapp')}</a>
+      <button class="btn" data-copy>${ICON.copy} ${T('copy')}</button></div>` : ''}
+    <div class="row-btns">
+      <button class="btn ghost" data-act="invite-toggle">${inv.enabled ? T('inviteOff') : T('inviteOnBtn')}</button>
+      <button class="btn ghost neg-text" data-act="invite-reset">${T('inviteReset')}</button>
+    </div>
+    <p class="muted small">${T('inviteSafety')}</p>
+  </div>`, (el) => {
+    $('[data-copy]', el)?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(url); toast(T('copied')); } catch { toast(url); }
+    });
+  });
+}
+
+function requestsSheet() {
+  if (!requests.length) { closeSheet(); return; }
+  sheet(`<div class="stack">
+    <h2 class="sheet-title">${T('reqTitle')}</h2>
+    <p class="muted small">${T('reqHint')}</p>
+    <ul class="req-list">${requests.map((r) => `<li>
+      <span class="who"><b>${esc(r.name)}</b><small><bdi>${when(r.created_at)}</bdi></small></span>
+      <button class="btn small-btn" data-act="req-no" data-id="${esc(r.ledger_id)}">${T('decline')}</button>
+      <button class="btn pos small-btn" data-act="req-yes" data-id="${esc(r.ledger_id)}">${T('accept')}</button>
+    </li>`).join('')}</ul>
+    ${requests.length > 1 ? `<button class="btn ghost neg-text" data-act="req-none">${T('declineAll')}</button>` : ''}
+  </div>`);
+}
+
+function renderJoin(code) {
+  stopPoll(); current = null;
+  app.innerHTML = `
+  <main class="onboard join">
+    <button class="lang-pill" data-act="lang">${settings.lang === 'ar' ? 'English' : 'العربية'}</button>
+    <div class="hero">${qamariya({ mood: 'even', variant: 'full' })}</div>
+    <h1 class="hero-title small-title">القطة ياعبدو</h1>
+    <div class="join-body"><p class="muted center">…</p></div>
+  </main>`;
+  const body = $('.join-body');
+  if (settings.invite?.code === code) {
+    body.innerHTML = `<p class="tagline">${T('ownInvite')}</p><button class="btn primary" data-act="home">${T('backHome')}</button>`;
+    return;
+  }
+  api.inviteInfo(code).then((info) => {
+    if (!info || !info.enabled) {
+      body.innerHTML = `<p class="tagline">${T('inviteClosed')}</p><button class="btn" data-act="home">${T('backHome')}</button>`;
+      return;
+    }
+    body.innerHTML = `
+      <p class="tagline"><b>${T('joinTitle', esc(info.owner))}</b><br>${T('joinBody', esc(info.owner))}</p>
+      <form class="stack" data-form="join" data-code="${esc(code)}">
+        <label class="field"><span>${T('yourName')}</span>
+          <input name="name" maxlength="40" required autocomplete="given-name" value="${esc(settings.name)}" placeholder="${T('namePh')}"></label>
+        <div class="field"><span>${T('currency')}</span><div class="chips">${currencyChips('USD')}</div></div>
+        <button class="btn primary big" type="submit">${T('joinBtn')}</button>
+      </form>`;
+  }).catch(() => { body.innerHTML = `<p class="tagline">${T('error')}</p>`; });
+}
+
 function settingsSheet() {
   const seg = (name, opts, val) => `<div class="seg">${opts.map(([v, l]) =>
     `<label><input type="radio" name="${name}" value="${v}" ${v === val ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
@@ -611,6 +714,33 @@ document.addEventListener('click', async (e) => {
     } });
   }
   else if (act === 'settings') settingsSheet();
+  else if (act === 'invite') inviteSheet();
+  else if (act === 'requests') requestsSheet();
+  else if (act === 'invite-create') {
+    if (!settings.name) { closeSheet(); settingsSheet(); return; }
+    const r = await busy(el, () => api.inviteCreate(settings.name));
+    if (r) { settings.invite = { code: r.code, key: r.key, enabled: r.enabled }; saveSettings(); inviteSheet(); }
+  }
+  else if (act === 'invite-toggle' || act === 'invite-reset') {
+    const doIt = async () => {
+      const r = await busy(el, () => api.inviteSet(settings.invite.key, act === 'invite-toggle' ? !settings.invite.enabled : null, act === 'invite-reset'));
+      if (r) { Object.assign(settings.invite, { code: r.code, enabled: r.enabled }); saveSettings(); toast(T('saved')); inviteSheet(); }
+    };
+    if (act === 'invite-reset') confirmSheet({ title: T('inviteReset'), body: T('inviteResetQ'), danger: true, ok: T('inviteReset'), onOk: doIt });
+    else doIt();
+  }
+  else if (act === 'req-yes' || act === 'req-no' || act === 'req-none') {
+    const accept = act === 'req-yes', id = act === 'req-none' ? null : el.dataset.id;
+    const r = await busy(el, () => api.inviteDecide(settings.invite.key, id, accept));
+    requests = act === 'req-none' ? [] : requests.filter((x) => x.ledger_id !== id);
+    if (accept && r?.token) {
+      const d = await api.get(r.token).catch(() => null);
+      if (d) { upsertTab(r.token, d); tabs.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))); saveTabs(); }
+      toast(T('accepted'));
+    }
+    renderHome();
+    if (requests.length) requestsSheet(); else closeSheet();
+  }
   else if (act === 'lang') { settings.lang = settings.lang === 'ar' ? 'en' : 'ar'; saveSettings(); applyLang(); route(); }
   else if (act === 'add') entrySheet(Number(el.dataset.dir));
   else if (act === 'share') shareSheet();
@@ -691,6 +821,21 @@ document.addEventListener('submit', async (e) => {
     renderHome();
     refreshHome();
   }
+  else if (kind === 'join') {
+    const name = String(fd.get('name')).trim(), cur = String(fd.get('currency') || 'USD');
+    try {
+      btn.disabled = true;
+      const r = await api.join(form.dataset.code, name, cur);
+      if (!settings.name) { settings.name = name; saveSettings(); }
+      tabs.unshift({ token: r.token, friend: '', me: name, currency: cur, balance: 0, side: 'b', status: 'pending' });
+      saveTabs();
+      location.replace('#/t/' + r.token);
+    } catch (err) {
+      btn.disabled = false;
+      const m = String(err.message || '');
+      toast(m.includes('slow') || m.includes('too many') ? T('joinBusy') : m.includes('closed') ? T('inviteClosed') : T('error'));
+    }
+  }
   else if (kind === 'dispute') {
     const r = await busy(btn, () => api.dispute(current.token, form.dataset.id, String(fd.get('reason') || '').trim()));
     if (r) { closeSheet(); setData(r); }
@@ -714,10 +859,12 @@ document.addEventListener('submit', async (e) => {
 
 // ---------- routing ----------
 function route() {
+  const j = location.hash.match(/^#\/join\/([\w-]{8,64})/);
+  if (j) { clearInterval(homeTimer); return renderJoin(j[1]); }
   const m = location.hash.match(/^#\/t\/([\w-]{10,64})/);
   if (m) {
     if (current?.token === m[1]) renderCounter(); else openCounter(m[1]);
-  } else { renderHome(); refreshHome(); }
+  } else { renderHome(); refreshHome(); startHomePoll(); }
 }
 window.addEventListener('hashchange', () => { closeSheet(true); route(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) current ? refresh() : refreshHome(); });
