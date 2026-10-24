@@ -1,0 +1,25 @@
+{
+  "fps": 30,
+  "duration": 48,
+  "scenes": [
+    { "id": "intro",  "start": 0,    "end": 4.6 },
+    { "id": "ask",    "start": 4.6,  "end": 9.2 },
+    { "id": "add",    "start": 9.2,  "end": 15.2 },
+    { "id": "link",   "start": 15.2, "end": 21.2 },
+    { "id": "count",  "start": 21.2, "end": 29.2 },
+    { "id": "split",  "start": 29.2, "end": 36.2 },
+    { "id": "settle", "start": 36.2, "end": 42.2 },
+    { "id": "outro",  "start": 42.2, "end": 48 }
+  ],
+  "sfx": [
+    ["whoosh", 4.6], ["whoosh", 9.2], ["whoosh", 15.2], ["whoosh", 21.2], ["whoosh", 29.2], ["whoosh", 36.2], ["whoosh", 42.2],
+    ["title", 2.6],
+    ["coin", 5.3], ["coin", 5.7], ["coin", 6.1], ["coin", 6.5], ["coin", 6.9], ["gather", 8.3],
+    ["tap", 9.9], ["pop", 10.4], ["pop", 11.7],
+    ["tap", 16.0], ["send", 16.4], ["ping", 17.6], ["pop", 18.2],
+    ["tap", 22.3], ["count", 22.6], ["coin", 23.6], ["ping", 25.6], ["count", 26.0], ["coin", 26.8],
+    ["tap", 30.2], ["split", 30.6], ["coin", 31.25], ["coin", 31.55], ["coin", 31.85], ["chime", 32.4],
+    ["tap", 37.4], ["count", 37.6], ["sparkle", 38.35],
+    ["chime", 43.2]
+  ]
+}

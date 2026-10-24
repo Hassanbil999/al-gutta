@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>القطة ياعبدو — promo</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=IBM+Plex+Sans+Arabic:wght@500;600&family=Reem+Kufi:wght@500..700&display=swap">
+<style>
+  :root { --mud:#7A4A2E; --mud2:#5A3220; --gyp:#F7F1E6; --paper:#F3EBDD; --card:#FBF7F0; --ink:#2B1A10; --ink2:#6E5646; --line:#E4D7C3;
+          --pos:#2F7D5B; --neg:#B8322A; --saff:#E0A22B; --frame:#F7F1E6; --frame-edge:#C9B497; --backing:#2B1B12; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--paper); }
+  body { font-family: "IBM Plex Sans Arabic", sans-serif; color: var(--ink); position: relative; }
+  .abs { position: absolute; }
+  .bg { inset: 0; background: radial-gradient(1200px 900px at 50% 45%, #F8F1E5 0%, #F1E6D4 60%, #E9DCC6 100%); }
+  .band { left: 0; right: 0; height: 120px; background: var(--mud); }
+  .band.top { top: 0; } .band.bot { bottom: 0; height: 90px; }
+  .frieze { left: 0; right: 0; height: 34px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='34'%3E%3Cpath d='M0 34 24 8l24 26Z' fill='%23F7F1E6'/%3E%3Ccircle cx='24' cy='28' r='3.5' fill='%237A4A2E'/%3E%3C/svg%3E") repeat-x bottom / 48px 34px, var(--mud); }
+  .frieze.top { top: 120px; } .frieze.bot { bottom: 90px; transform: scaleY(-1); }
+  .brand { top: 30px; left: 0; right: 0; text-align: center; color: var(--gyp); font: 700 52px "Reem Kufi"; letter-spacing: .01em; }
+
+  .qamariya .frame { fill: var(--frame); stroke: var(--frame-edge); stroke-width: 1.5; }
+  .qamariya .backing { fill: var(--backing); }
+  .qamariya .lattice { fill: none; stroke: var(--frame); stroke-width: 3.2; stroke-linecap: round; }
+  .qamariya .transom { fill: var(--frame); }
+  .qamariya .pearls { fill: var(--mud); opacity: .55; }
+  .qamariya .g { opacity: .95; } .qamariya .g.low { opacity: .42; }
+  svg { display: block; }
+
+  .scene { inset: 0; opacity: 0; will-change: opacity, transform; }
+  .cap { top: 250px; left: 60px; right: 60px; text-align: center; }
+  .cap .step { display: inline-grid; place-items: center; width: 96px; height: 96px; border-radius: 30px; background: var(--mud); color: var(--gyp); font: 700 56px "Reem Kufi"; margin-bottom: 26px; box-shadow: 0 16px 40px -18px rgba(90,50,32,.8); }
+  .cap .ar { font: 700 96px/1.2 "Reem Kufi"; color: var(--mud); }
+  .cap .en { font: italic 500 44px/1.3 "Fraunces", serif; color: var(--ink2); direction: ltr; margin-top: 10px; }
+  .cap .sub { font: 500 38px/1.4 "IBM Plex Sans Arabic"; color: var(--ink2); margin-top: 14px; }
+
+  /* phone */
+  .phone { width: 640px; height: 1120px; border-radius: 70px; background: #1d130d; padding: 18px; box-shadow: 0 50px 90px -40px rgba(60,30,15,.7); }
+  .screen { width: 100%; height: 100%; border-radius: 54px; overflow: hidden; background: var(--paper); position: relative; }
+  .ph-head { height: 120px; background: var(--mud); color: var(--gyp); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 22px; font: 700 40px "Reem Kufi"; position: relative; }
+  .ph-fr { height: 22px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='22'%3E%3Cpath d='M0 22 15 5l15 17Z' fill='%23F7F1E6'/%3E%3C/svg%3E") repeat-x bottom / 30px 22px, var(--mud); }
+  .card { left: 28px; right: 28px; height: 150px; border-radius: 30px; background: var(--card); border: 2px solid var(--line); display: flex; align-items: center; gap: 24px; padding: 0 28px; box-shadow: 0 20px 40px -26px rgba(90,50,32,.6); }
+  .card .mini { width: 96px; }
+  .card b { font: 700 46px "Reem Kufi"; display: block; }
+  .card small { font: 500 28px "IBM Plex Sans Arabic"; color: var(--ink2); }
+  .card .amt { margin-inline-start: auto; font: 700 42px "Reem Kufi"; color: var(--pos); }
+  .fab { left: 50%; bottom: 60px; transform: translateX(-50%); padding: 26px 46px; border-radius: 99px; background: var(--mud); color: var(--gyp); font: 600 36px "IBM Plex Sans Arabic"; white-space: nowrap; box-shadow: 0 20px 40px -18px rgba(90,50,32,.8); }
+  .tapdot { width: 120px; height: 120px; border-radius: 50%; border: 8px solid var(--saff); opacity: 0; transform: translate(-50%,-50%) scale(.4); pointer-events: none; }
+
+  .coin { width: 150px; height: 150px; border-radius: 50%; display: grid; place-items: center; font: 700 52px "Reem Kufi"; color: #fff; box-shadow: inset 0 -10px 0 rgba(0,0,0,.18), 0 18px 34px -16px rgba(0,0,0,.5); }
+  .qmark { font: 700 360px "Reem Kufi"; color: var(--mud); opacity: .1; }
+
+  .bubble { padding: 26px 34px; border-radius: 34px 34px 10px 34px; background: #1f9d55; color: #fff; font: 600 34px "IBM Plex Sans Arabic"; white-space: nowrap; box-shadow: 0 20px 40px -20px rgba(0,0,0,.5); }
+  .pill { padding: 18px 34px; border-radius: 99px; background: var(--card); border: 3px solid var(--pos); color: var(--pos); font: 600 36px "IBM Plex Sans Arabic"; white-space: nowrap; }
+
+  .bigwin { width: 420px; left: 330px; }
+  .num { left: 0; right: 0; text-align: center; font: 700 170px/1 "Reem Kufi"; }
+  .num small { font-size: 70px; color: var(--ink2); font-family: "IBM Plex Sans Arabic"; font-weight: 600; margin-inline-start: 18px; }
+  .lbl { left: 0; right: 0; text-align: center; font: 600 50px "IBM Plex Sans Arabic"; color: var(--ink2); }
+  .btns { left: 90px; right: 90px; display: grid; grid-template-columns: 1fr 1fr; gap: 34px; }
+  .btn { height: 190px; border-radius: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 4px solid; }
+  .btn b { font: 700 80px/1.1 "Reem Kufi"; }
+  .btn span { font: 500 28px "IBM Plex Sans Arabic"; opacity: .85; }
+  .btn.plus { color: var(--pos); border-color: #9cc6b0; background: #E5EFE6; }
+  .btn.minus { color: var(--neg); border-color: #e0a59f; background: #F6E4DF; }
+  .toast { left: 50%; transform: translateX(-50%); padding: 22px 38px; border-radius: 99px; background: var(--ink); color: var(--paper); font: 600 36px "IBM Plex Sans Arabic"; white-space: nowrap; }
+
+  .receipt { width: 520px; left: 280px; border-radius: 30px; background: var(--card); border: 3px dashed var(--frame-edge); padding: 40px; text-align: center; box-shadow: 0 30px 60px -30px rgba(90,50,32,.6); }
+  .receipt .t { font: 600 40px "IBM Plex Sans Arabic"; color: var(--ink2); }
+  .receipt .v { font: 700 130px/1.1 "Reem Kufi"; color: var(--ink); }
+  .piece { width: 250px; height: 150px; border-radius: 30px; background: var(--card); border: 3px solid var(--saff); display: grid; place-items: center; font: 700 64px "Reem Kufi"; color: var(--mud); }
+  .avatar { width: 220px; text-align: center; }
+  .avatar .c { width: 180px; height: 180px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; font: 700 64px "Reem Kufi"; color: var(--gyp); }
+  .avatar .n { font: 700 46px "Reem Kufi"; margin-top: 16px; }
+  .avatar .s { font: 700 52px "Reem Kufi"; color: var(--pos); margin-top: 6px; }
+  .avatar .s.me { color: var(--ink2); font-size: 36px; font-family: "IBM Plex Sans Arabic"; font-weight: 600; }
+  .divide { width: 170px; height: 170px; border-radius: 48px; display: grid; place-items: center; background: linear-gradient(135deg, var(--mud), #9a5a32); }
+
+  .settlebtn { left: 50%; transform: translateX(-50%); padding: 30px 60px; border-radius: 40px; border: 4px solid var(--line); background: var(--card); font: 700 52px "Reem Kufi"; color: var(--ink); white-space: nowrap; }
+  .shard { width: 34px; height: 34px; border-radius: 6px; }
+  .glow { width: 900px; height: 900px; left: 90px; border-radius: 50%; background: radial-gradient(circle, rgba(224,162,43,.55), rgba(224,162,43,0) 65%); }
+
+  .logo-t { left: 0; right: 0; text-align: center; font: 700 150px/1.15 "Reem Kufi"; color: var(--mud); }
+  .logo-e { left: 0; right: 0; text-align: center; font: italic 500 64px "Fraunces"; color: var(--ink2); direction: ltr; }
+  .tag { left: 80px; right: 80px; text-align: center; font: 600 52px/1.45 "IBM Plex Sans Arabic"; color: var(--ink); }
+  .tag-en { left: 80px; right: 80px; text-align: center; font: italic 500 40px "Fraunces"; color: var(--ink2); direction: ltr; }
+  .url { left: 50%; transform: translateX(-50%); padding: 26px 48px; border-radius: 99px; background: var(--mud); color: var(--gyp); font: 600 40px "IBM Plex Sans"; direction: ltr; white-space: nowrap; letter-spacing: .01em; }
+  .cta { left: 0; right: 0; text-align: center; font: 700 54px "Reem Kufi"; color: var(--mud); }
+  .cta span { font: italic 500 36px "Fraunces"; color: var(--ink2); display: block; direction: ltr; margin-top: 6px; }
+  #fade { inset: 0; background: #1d130d; opacity: 0; }
+</style>
+</head>
+<body>
+<div class="abs bg"></div>
+<div class="abs band top"></div><div class="abs frieze top"></div>
+<div class="abs brand" id="brand">القطة ياعبدو</div>
+<div class="abs band bot"></div><div class="abs frieze bot"></div>
+
+<!-- 0 intro -->
+<div class="abs scene" id="s-intro">
+  <div class="abs" id="introWin" style="width:600px;left:240px;top:420px"></div>
+  <div class="abs logo-t" id="introT" style="top:1120px">القطة ياعبدو</div>
+  <div class="abs logo-e" id="introE" style="top:1320px">Al-Gutta Ya Abdo</div>
+  <div class="abs tag" id="introTag" style="top:1450px">حساب بسيط بينك وبين ربعك</div>
+</div>
+
+<!-- 1 ask -->
+<div class="abs scene" id="s-ask">
+  <div class="abs qmark" style="top:760px;left:0;right:0;text-align:center" id="qmark">؟</div>
+  <div class="abs cap"><div class="ar">مين له؟ ومين عليه؟</div><div class="en">Who owes whom?</div>
+    <div class="sub">دولار، ليرة، ريال… والحساب ضايع</div></div>
+  <div id="coins"></div>
+</div>
+
+<!-- 2 add -->
+<div class="abs scene" id="s-add">
+  <div class="abs cap"><div class="step">١</div><div class="ar">أضف صاحب</div><div class="en">Add a friend</div></div>
+  <div class="abs phone" style="left:220px;top:690px"><div class="screen">
+    <div class="ph-head">القطة ياعبدو</div><div class="ph-fr"></div>
+    <div class="abs card" id="card1" style="top:200px"><span class="mini" id="mini1"></span><span><b>عبدو</b><small>خالصين ✦</small></span></div>
+    <div class="abs card" id="card2" style="top:380px"><span class="mini" id="mini2"></span><span><b>علي</b><small>خالصين ✦</small></span></div>
+    <div class="abs fab" id="fab">+ أضف صاحب</div>
+  </div></div>
+  <div class="abs tapdot" id="tap1"></div>
+</div>
+
+<!-- 3 link -->
+<div class="abs scene" id="s-link">
+  <div class="abs cap"><div class="step">٢</div><div class="ar">أرسل له الرابط</div><div class="en">Send the link — that's it</div></div>
+  <div class="abs phone" id="phA" style="left:40px;top:760px;width:470px;height:840px;border-radius:56px"><div class="screen" style="border-radius:42px">
+    <div class="ph-head" style="height:100px;font-size:32px">عبدو</div><div class="ph-fr"></div>
+    <div class="abs" style="left:0;right:0;top:200px;text-align:center;font:600 30px 'IBM Plex Sans Arabic';color:var(--ink2)">أرسل الرابط لعبدو</div>
+    <div class="abs" style="left:40px;right:40px;top:290px;height:110px;border-radius:30px;background:#1f9d55;color:#fff;display:grid;place-items:center;font:600 36px 'IBM Plex Sans Arabic'">واتساب</div>
+  </div></div>
+  <div class="abs phone" id="phB" style="left:570px;top:760px;width:470px;height:840px;border-radius:56px"><div class="screen" style="border-radius:42px">
+    <div class="ph-head" style="height:100px;font-size:32px">Hassan</div><div class="ph-fr"></div>
+    <div class="abs" id="welcome" style="left:30px;right:30px;top:230px;text-align:center">
+      <div id="mini3" style="width:180px;margin:0 auto"></div>
+      <div style="font:700 50px 'Reem Kufi';margin-top:20px">أهلاً يا عبدو!</div>
+      <div style="font:500 28px/1.5 'IBM Plex Sans Arabic';color:var(--ink2);margin-top:12px">حسن فتح بينكم حساب</div>
+    </div>
+  </div></div>
+  <div class="abs bubble" id="bubble">🔗 al-gutta</div>
+  <div class="abs pill" id="noinst" style="left:50%;top:1680px;transform:translateX(-50%)">✓ بدون تثبيت · No install</div>
+</div>
+
+<!-- 4 count -->
+<div class="abs scene" id="s-count">
+  <div class="abs cap"><div class="step">٣</div><div class="ar">«لي» أو «عليّ»</div><div class="en">They owe me — or I owe them</div></div>
+  <div class="abs bigwin" style="top:660px" id="win4even"></div>
+  <div class="abs bigwin" style="top:660px;opacity:0" id="win4plus"></div>
+  <div class="abs num" id="num4" style="top:1190px;color:var(--pos)">٠</div>
+  <div class="abs lbl" id="lbl4" style="top:1390px">لك عند عبدو</div>
+  <div class="abs btns" style="top:1510px"><div class="btn plus" id="bPlus"><b>لي</b><span>سلّفته أو دفعت عنه</span></div><div class="btn minus"><b>عليّ</b><span>سلّفني أو دفع عني</span></div></div>
+  <div class="abs toast" id="sync" style="top:150px;opacity:0;z-index:5;box-shadow:0 20px 40px -16px rgba(0,0,0,.6)">⟲ عبدو سجّل −١٬٠٠٠</div>
+  <div class="abs tapdot" id="tap2"></div>
+</div>
+
+<!-- 5 split -->
+<div class="abs scene" id="s-split">
+  <div class="abs cap"><div class="step">٤</div><div class="ar">قطّة ÷ للجماعة</div><div class="en">Paid for the group? Split it</div></div>
+  <div class="abs receipt" id="receipt" style="top:720px"><div class="t">عشاء · دفعتها أنت</div><div class="v">٩٠ $</div></div>
+  <div class="abs divide" id="divIcon" style="left:455px;top:1080px"><svg viewBox="0 0 24 24" width="100" height="100"><path d="M5 12h14" stroke="#F7F1E6" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="6.2" r="1.7" fill="#F7F1E6"/><circle cx="12" cy="17.8" r="1.7" fill="#F7F1E6"/></svg></div>
+  <div class="abs piece" id="pc0">٣٠ $</div><div class="abs piece" id="pc1">٣٠ $</div><div class="abs piece" id="pc2">٣٠ $</div>
+  <div class="abs avatar" style="left:770px;top:1350px" id="av0"><div class="c" style="background:#7A4A2E">أ</div><div class="n">أنت</div><div class="s me">دفعتها ✓</div></div>
+  <div class="abs avatar" style="left:430px;top:1350px" id="av1"><div class="c" style="background:#2F7D5B">ع</div><div class="n">عبدو</div><div class="s">+٣٠ $</div></div>
+  <div class="abs avatar" style="left:90px;top:1350px" id="av2"><div class="c" style="background:#2C4A8A">ع</div><div class="n">علي</div><div class="s">+٣٠ $</div></div>
+  <div class="abs" id="splitNote" style="left:0;right:0;top:1700px;text-align:center;font:500 36px 'IBM Plex Sans Arabic';color:var(--ink2)">كل واحد يوصله نصيبه في حسابه</div>
+</div>
+
+<!-- 6 settle -->
+<div class="abs scene" id="s-settle">
+  <div class="abs cap"><div class="step">٥</div><div class="ar">صفّر الحساب</div><div class="en">Settle up — back to zero</div></div>
+  <div class="abs glow" id="glow" style="top:470px;opacity:0"></div>
+  <div class="abs bigwin" style="top:660px" id="win6plus"></div>
+  <div class="abs bigwin" style="top:660px;opacity:0" id="win6even"></div>
+  <div id="shards"></div>
+  <div class="abs num" id="num6" style="top:1190px;color:var(--pos)">٢٬٠٠٠</div>
+  <div class="abs lbl" id="lbl6" style="top:1390px">لك عند عبدو</div>
+  <div class="abs settlebtn" id="sBtn" style="top:1520px">✦ صفّر الحساب</div>
+  <div class="abs tapdot" id="tap3"></div>
+</div>
+
+<!-- 7 outro -->
+<div class="abs scene" id="s-outro">
+  <div class="abs" id="outWin" style="width:380px;left:350px;top:330px"></div>
+  <div class="abs logo-t" style="top:850px" id="oT">القطة ياعبدو</div>
+  <div class="abs tag" style="top:1050px" id="oTag">يرجع صفر، وتبقى المحبة</div>
+  <div class="abs tag-en" style="top:1140px" id="oTagE">Back to zero, friendship intact</div>
+  <div class="abs url" style="top:1310px" id="oUrl">hassanbil999.github.io/al-gutta</div>
+  <div class="abs cta" style="top:1470px" id="oCta">افتح الرابط وابدأ<span>Open the link &amp; start — free</span></div>
+</div>
+
+<div class="abs" id="fade"></div>
+
+<script type="module">
+import { qamariya } from '../js/qamariya.js';
+const TL = await (await fetch('timeline.json')).json();
+const $ = (id) => document.getElementById(id);
+const put = (id, html) => { $(id).innerHTML = html; };
+put('introWin', qamariya({ mood: 'even', variant: 'full' }));
+put('mini1', qamariya({ mood: 'even', variant: 'mini' })); put('mini2', qamariya({ mood: 'even', variant: 'mini' }));
+put('mini3', qamariya({ mood: 'even', variant: 'mini' }));
+put('win4even', qamariya({ mood: 'even', variant: 'full' })); put('win4plus', qamariya({ mood: 'plus', variant: 'full' }));
+put('win6plus', qamariya({ mood: 'plus', variant: 'full' })); put('win6even', qamariya({ mood: 'even', variant: 'full' }));
+put('outWin', qamariya({ mood: 'even', variant: 'full' }));
+
+// coins for the "who owes whom" scene
+const COINS = [['$', '#2F7D5B'], ['ل.ل', '#B8322A'], ['ر.ي', '#2C4A8A'], ['$', '#E0A22B'], ['ر.س', '#2E8C8C'], ['ل.ل', '#C8553D'], ['$', '#7A4A2E'], ['ر.ي', '#2F7D5B']];
+$('coins').innerHTML = COINS.map(([s, c], i) => `<div class="abs coin" id="coin${i}" style="background:${c}">${s}</div>`).join('');
+const SH = ['#B8322A', '#E0A22B', '#2F7D5B', '#2C4A8A', '#2E8C8C'];
+$('shards').innerHTML = Array.from({ length: 34 }, (_, i) => `<div class="abs shard" id="sh${i}" style="background:${SH[i % 5]};opacity:0"></div>`).join('');
+
+// ---- tiny animation kit ----
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = { out: (x) => 1 - Math.pow(1 - x, 3), inOut: (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2),
+  back: (x) => { const c = 1.7; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); } };
+const prog = (t, a, b, e = ease.out) => e(clamp((t - a) / (b - a)));
+const lerp = (a, b, p) => a + (b - a) * p;
+const css = (id, o) => { const s = $(id).style; for (const k in o) s[k] = o[k]; };
+const ar = (n) => new Intl.NumberFormat('ar-u-nu-arab', { maximumFractionDigits: 0 }).format(n);
+const tapAt = (id, t, t0, x, y) => { const p = clamp((t - t0) / 0.45); css(id, { left: x + 'px', top: y + 'px', opacity: p > 0 && p < 1 ? String(1 - p) : '0', transform: `translate(-50%,-50%) scale(${0.4 + p * 0.9})` }); };
+const panes = (rootId, t, t0, step) => { $(rootId).querySelectorAll('.g').forEach((g, i) => { const p = prog(t, t0 + i * step, t0 + i * step + 0.25); g.style.opacity = String((g.classList.contains('low') ? 0.42 : 0.95) * p); }); };
+const glowPanes = (rootId, t) => { $(rootId).querySelectorAll('.g:not(.low)').forEach((g, i) => { g.style.opacity = String(0.7 + 0.25 * Math.sin(t * 3 + i * 0.6)); }); };
+
+window.render = (t) => {
+  // scene cross-fades
+  for (const s of TL.scenes) {
+    const fi = s.start === 0 ? 1 : prog(t, s.start, s.start + 0.45);
+    const fo = s.end >= TL.duration ? 1 : 1 - prog(t, s.end - 0.35, s.end, ease.inOut);
+    const o = Math.min(fi, fo);
+    css('s-' + s.id, { opacity: String(o), transform: `translateY(${(1 - fi) * 40}px) scale(${1 - (1 - fo) * 0.04})`, display: o <= 0.001 ? 'none' : 'block' });
+  }
+  css('brand', { opacity: String(prog(t, 3.6, 4.4)) });
+
+  // 0 intro: panes light up one by one, then the title
+  if (t < 5) {
+    panes('introWin', t, 0.3, 0.075);
+    const w = prog(t, 0, 0.6, ease.back); css('introWin', { transform: `scale(${0.85 + 0.15 * w})`, opacity: String(clamp(t / 0.3)) });
+    const tt = prog(t, 2.6, 3.2, ease.back); css('introT', { opacity: String(clamp((t - 2.6) / 0.3)), transform: `scale(${0.7 + 0.3 * tt})` });
+    css('introE', { opacity: String(prog(t, 3.0, 3.5)), transform: `translateY(${(1 - prog(t, 3.0, 3.5)) * 30}px)` });
+    css('introTag', { opacity: String(prog(t, 3.4, 3.9)) });
+  }
+  // 1 ask: coins tumble around, then gather and vanish
+  if (t > 4.4 && t < 9.4) {
+    COINS.forEach((_, i) => {
+      const a0 = (i / COINS.length) * Math.PI * 2, appear = prog(t, 5.0 + i * 0.2, 5.4 + i * 0.2, ease.back);
+      const gather = prog(t, 8.0, 8.6, ease.inOut);
+      const r = 330 + 60 * Math.sin(i * 1.7), ang = a0 + (t - 5) * 0.35 * (i % 2 ? 1 : -1);
+      const x = 540 + Math.cos(ang) * r * (1 - gather) - 75, y = 1150 + Math.sin(ang) * r * 0.85 * (1 - gather) + Math.sin(t * 2 + i) * 20 - 75;
+      css('coin' + i, { left: x + 'px', top: y + 'px', transform: `scale(${appear * (1 - gather * 0.9)}) rotate(${Math.sin(t * 1.5 + i) * 18}deg)`, opacity: String(1 - prog(t, 8.45, 8.7)) });
+    });
+    css('qmark', { transform: `scale(${1 + 0.04 * Math.sin(t * 3)})` });
+  }
+  // 2 add: tap the button, two friends slide in
+  if (t > 9 && t < 15.4) {
+    tapAt('tap1', t, 9.9, 540, 1690);
+    css('fab', { transform: `translateX(-50%) scale(${1 - 0.06 * (prog(t, 9.85, 9.95) - prog(t, 9.95, 10.15))})` });
+    [['card1', 10.4], ['card2', 11.7]].forEach(([id, t0]) => { const p = prog(t, t0, t0 + 0.55, ease.back); css(id, { opacity: String(clamp((t - t0) / 0.2)), transform: `translateX(${(1 - p) * -260}px)` }); });
+  }
+  // 3 link: bubble flies phone A → phone B, B lights up
+  if (t > 15 && t < 21.4) {
+    const p = prog(t, 16.4, 17.5, ease.inOut);
+    const x = lerp(170, 640, p), y = lerp(1120, 1040, p) - Math.sin(p * Math.PI) * 260;
+    css('bubble', { left: x + 'px', top: y + 'px', opacity: String(clamp((t - 16.3) / 0.15) * (1 - prog(t, 17.5, 17.8))), transform: `scale(${0.8 + 0.2 * Math.sin(p * Math.PI)}) rotate(${(p - 0.5) * 16}deg)` });
+    const w = prog(t, 17.7, 18.3, ease.back); css('welcome', { opacity: String(clamp((t - 17.7) / 0.2)), transform: `scale(${0.7 + 0.3 * w})` });
+    css('phB', { boxShadow: `0 0 ${prog(t, 17.6, 18) * (1 - prog(t, 18.4, 19.5)) * 120}px rgba(224,162,43,.9), 0 50px 90px -40px rgba(60,30,15,.7)` });
+    tapAt('tap2', t, 16.0, 275, 1110);
+    const q = prog(t, 18.6, 19.1, ease.back); css('noinst', { opacity: String(clamp((t - 18.6) / 0.2)), transform: `translateX(-50%) scale(${0.6 + 0.4 * q})` });
+  }
+  // 4 count: tap «لي», number climbs, window turns green; friend adds, number drops
+  if (t > 21 && t < 29.4) {
+    tapAt('tap2', t, 22.3, 760, 1600);
+    css('bPlus', { transform: `scale(${1 - 0.06 * (prog(t, 22.25, 22.35) - prog(t, 22.35, 22.6))})` });
+    const up = prog(t, 22.6, 23.6, ease.out), down = prog(t, 26.0, 26.8, ease.out);
+    const v = Math.round((3000 * up - 1000 * down) / 10) * 10;
+    $('num4').innerHTML = `${ar(v)}<small>$</small>`;
+    css('num4', { color: v > 0 ? 'var(--pos)' : 'var(--ink)', transform: `scale(${1 + 0.08 * (prog(t, 23.5, 23.6) - prog(t, 23.6, 23.9)) + 0.08 * (prog(t, 26.7, 26.8) - prog(t, 26.8, 27.1))})` });
+    css('lbl4', { opacity: String(prog(t, 22.6, 23)) });
+    const g = prog(t, 22.8, 23.6); css('win4plus', { opacity: String(g) }); css('win4even', { opacity: String(1 - g) });
+    const s = prog(t, 25.4, 25.8, ease.back) * (1 - prog(t, 27.6, 28)); css('sync', { opacity: String(clamp(s)), transform: `translateX(-50%) translateY(${(1 - s) * -60}px)` });
+  }
+  // 5 split: receipt splits into three shares that fly to each person
+  if (t > 29 && t < 36.4) {
+    const r = prog(t, 30.6, 30.9); css('receipt', { transform: `scale(${1 - 0.15 * r})`, opacity: String(1 - r) });
+    css('divIcon', { opacity: String(prog(t, 29.9, 30.2)), transform: `scale(${prog(t, 29.9, 30.3, ease.back)}) rotate(${prog(t, 30.2, 30.8) * 180}deg)` });
+    const targets = [[790, 1350], [450, 1350], [110, 1350]];
+    targets.forEach(([tx, ty], i) => {
+      const t0 = 30.7 + i * 0.3, p = prog(t, t0, t0 + 0.55, ease.inOut);
+      const x = lerp(415, tx - 15, p), y = lerp(860, ty - 170, p) - Math.sin(p * Math.PI) * 180;
+      css('pc' + i, { left: x + 'px', top: y + 'px', opacity: String(clamp((t - t0 + 0.05) / 0.1) * (1 - prog(t, t0 + 0.55, t0 + 0.75))), transform: `scale(${1 - 0.3 * p}) rotate(${(i - 1) * 12 * Math.sin(p * Math.PI)}deg)` });
+      const a = prog(t, t0 + 0.5, t0 + 0.85, ease.back); css('av' + i, { transform: `scale(${0.8 + 0.2 * a})` });
+      $('av' + i).querySelector('.s').style.opacity = String(clamp((t - t0 - 0.5) / 0.2));
+    });
+    css('splitNote', { opacity: String(prog(t, 32.4, 32.9)) });
+  }
+  // 6 settle: tap, number rolls to صفر, window becomes whole, shards burst
+  if (t > 36 && t < 42.4) {
+    tapAt('tap3', t, 37.4, 540, 1585);
+    css('sBtn', { transform: `translateX(-50%) scale(${1 - 0.06 * (prog(t, 37.35, 37.45) - prog(t, 37.45, 37.7))})`, opacity: String(1 - prog(t, 38.4, 38.8)) });
+    const d = prog(t, 37.6, 38.3, ease.inOut), v = Math.round(2000 * (1 - d) / 10) * 10;
+    $('num6').innerHTML = v > 0 ? `${ar(v)}<small>$</small>` : 'صفر';
+    css('num6', { color: v > 0 ? 'var(--pos)' : 'var(--mud)', transform: `scale(${1 + 0.15 * (prog(t, 38.3, 38.45) - prog(t, 38.45, 38.9))})` });
+    $('lbl6').textContent = v > 0 ? 'لك عند عبدو' : 'خالصين ✦';
+    css('lbl6', { color: v > 0 ? 'var(--ink2)' : 'var(--mud)' });
+    const e = prog(t, 38.2, 38.6); css('win6even', { opacity: String(e) }); css('win6plus', { opacity: String(1 - e) });
+    if (t > 38.6) glowPanes('win6even', t);
+    css('glow', { opacity: String(prog(t, 38.3, 38.6) * (0.55 + 0.25 * Math.sin(t * 2.4)) * (1 - prog(t, 41.4, 42))) });
+    const pop = prog(t, 38.3, 38.65, ease.back) - prog(t, 38.65, 39.2); css('win6even', { transform: `scale(${1 + 0.08 * pop})` });
+    for (let i = 0; i < 34; i++) {
+      const a = Math.PI + (i / 34) * Math.PI * 1.0 + (i % 3) * 0.07, dist = 300 + (i * 53) % 260, p = prog(t, 38.35, 39.7, ease.out);
+      css('sh' + i, { left: (540 + Math.cos(a) * dist * p - 17) + 'px', top: (880 + Math.sin(a) * dist * p + p * p * 380 - 17) + 'px', opacity: String(t > 38.35 ? 1 - p : 0), transform: `rotate(${45 + p * (i % 2 ? 360 : -300)}deg) scale(${0.6 + 0.6 * (1 - p)})` });
+    }
+  }
+  // 7 outro
+  if (t > 42) {
+    panes('outWin', t, 42.4, 0.03);
+    const l = prog(t, 42.4, 43.0, ease.back); css('outWin', { transform: `scale(${0.8 + 0.2 * l})` });
+    [['oT', 43.0], ['oTag', 43.5], ['oTagE', 43.8], ['oUrl', 44.4], ['oCta', 45.0]].forEach(([id, t0]) => {
+      const p = prog(t, t0, t0 + 0.5, ease.back);
+      const base = id === 'oUrl' ? 'translateX(-50%) ' : '';
+      css(id, { opacity: String(clamp((t - t0) / 0.3)), transform: `${base}translateY(${(1 - p) * 40}px)` });
+    });
+    if (t > 45.5) css('oUrl', { transform: `translateX(-50%) scale(${1 + 0.03 * Math.sin((t - 45.5) * 5)})` });
+  }
+  css('fade', { opacity: String(prog(t, 47.3, 48, ease.inOut)) });
+};
+await document.fonts.ready;
+window.render(0);
+window.READY = true;
+</script>
+</body>
+</html>

@@ -1,3 +1,4 @@
 tools/_*
 __pycache__/
 .DS_Store
+promo/out/
