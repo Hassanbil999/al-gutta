@@ -371,3 +371,17 @@ bdi.money .cur { font-size: .62em; opacity: .75; font-family: var(--f-body); fon
 .tour-dots button { width: 8px; height: 8px; border-radius: 99px; border: 0; padding: 0; background: var(--line); transition: width .25s, background .25s; }
 .tour-dots button.on { width: 24px; background: var(--mud); }
 .tour-nav { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; padding: 0 18px; max-width: 520px; width: 100%; margin: 0 auto; }
+
+/* ---------- v6: two-sided settle, visible undos ---------- */
+.settle-box { width: 100%; margin-top: 18px; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.settle-box p { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.settle-box .amts { font: 600 17px var(--f-display); }
+.settle-box .amts .pos { color: var(--pos); } .settle-box .amts .neg { color: var(--neg); }
+.settle-box.mine { background: color-mix(in srgb, var(--saffron) 10%, var(--card)); border: 1.5px dashed color-mix(in srgb, var(--saffron) 60%, transparent); align-items: center; }
+.settle-box.theirs { background: color-mix(in srgb, var(--saffron) 16%, var(--card)); border: 2px solid var(--saffron); box-shadow: var(--shadow); }
+.entry.gone { opacity: .55; }
+.entry.gone .sign { color: var(--ink-2); background: color-mix(in srgb, var(--ink-2) 12%, transparent); }
+.entry.gone .amt { text-decoration: line-through; color: var(--ink-2); }
+.entry.gone .meta b { text-decoration: line-through; font-weight: 400; }
+.field textarea { font: 15px/1.6 var(--f-body); color: var(--ink); background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 12px 14px; outline: none; resize: vertical; text-align: start; }
+.field textarea:focus { border-color: var(--saffron); box-shadow: 0 0 0 4px color-mix(in srgb, var(--saffron) 22%, transparent); }

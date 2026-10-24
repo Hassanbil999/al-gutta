@@ -51,6 +51,11 @@ revoke all on public.qy_invites from anon, authenticated;
 alter table public.qy_ledgers add column if not exists status text not null default 'active';  -- active | pending | declined
 alter table public.qy_ledgers add column if not exists invite_id uuid references public.qy_invites(id) on delete set null;
 create index if not exists qy_ledgers_invite on public.qy_ledgers(invite_id, status);
+-- v5: settling needs the other side's confirmation; undone entries stay visible in the history
+alter table public.qy_ledgers add column if not exists settle_by char(1);
+alter table public.qy_ledgers add column if not exists settle_at timestamptz;
+alter table public.qy_ledgers add column if not exists settle_snapshot jsonb;
+alter table public.qy_entries add column if not exists deleted_at timestamptz;
 
 create index if not exists qy_entries_ledger on public.qy_entries(ledger_id, created_at desc);
 
@@ -108,6 +113,10 @@ begin
     'updated_at', l.updated_at,
     'share_token', case when s = 'a' then l.b_token else null end,
     'status',     l.status,
+    'settle_request', case when l.settle_by is null then null else json_build_object(
+                        'by_me', l.settle_by = s, 'at', l.settle_at,
+                        'balances', (select coalesce(json_object_agg(x.key, x.value::numeric * sg), '{}'::json)
+                                     from jsonb_each_text(l.settle_snapshot) x)) end,
     'balance',    coalesce((select sum(amount) from qy_entries
                             where ledger_id = l.id and not deleted
                               and coalesce(currency, l.currency) = l.currency), 0) * sg,
@@ -118,9 +127,10 @@ begin
                       'mine', e.by_side = s, 'kind', e.kind,
                       'disputed', e.disputed, 'dispute_reason', e.dispute_reason,
                       'group_id', e.group_id, 'split_total', e.split_total, 'split_count', e.split_count,
+                      'deleted', e.deleted, 'deleted_at', e.deleted_at,
                       'created_at', e.created_at)
                     order by e.created_at desc)
-                  from qy_entries e where e.ledger_id = l.id and not e.deleted), '[]'::json)
+                  from qy_entries e where e.ledger_id = l.id), '[]'::json)
   );
 end $$;
 
@@ -135,6 +145,8 @@ begin
       'me', case when l.a_token = t.tok then l.a_name else l.b_name end,
       'friend', case when l.a_token = t.tok then l.b_name else l.a_name end,
       'currency', l.currency, 'updated_at', l.updated_at, 'status', l.status,
+      'settle', case when l.settle_by is null then null
+                     when l.settle_by = case when l.a_token = t.tok then 'a' else 'b' end then 'mine' else 'theirs' end,
       'balances', _qy_balances(l.id, l.currency, case when l.a_token = t.tok then 1 else -1 end)))
     from unnest(p_tokens) as t(tok)
     join qy_ledgers l on l.a_token = t.tok or l.b_token = t.tok), '[]'::json);
@@ -169,28 +181,56 @@ begin
   insert into qy_entries(ledger_id, amount, note, by_side, currency)
   values (l.id, round(p_amount, 2) * case when s = 'a' then 1 else -1 end,
           _qy_clean(p_note, 140), s, cur);
-  update qy_ledgers set updated_at = now(), currency = cur where id = l.id;
+  update qy_ledgers set updated_at = now(), currency = cur, settle_by = null, settle_at = null, settle_snapshot = null where id = l.id;
   return qy_get(p_token);
 end $$;
 
--- settles every currency back to zero
+-- settling needs both people: one asks, the other confirms.
+-- The request remembers the balances it was made for; if the tab changes before the
+-- other person answers, the request is dropped (nobody confirms numbers they didn't see).
 create or replace function public.qy_settle(p_token text)
 returns json language plpgsql volatile security definer set search_path = public as $$
-declare l qy_ledgers; s char(1);
+declare l qy_ledgers; s char(1); snap jsonb;
 begin
   select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
   if l.status <> 'active' then raise exception 'not active'; end if;
-  insert into qy_entries(ledger_id, amount, by_side, kind, currency)
-  select l.id, -sum(amount), s, 'settle', coalesce(currency, l.currency)
-    from qy_entries where ledger_id = l.id and not deleted
-   group by coalesce(currency, l.currency) having sum(amount) <> 0;
-  update qy_ledgers set updated_at = now() where id = l.id;
+  snap := _qy_balances(l.id, l.currency, 1)::jsonb;
+  if snap = '{}'::jsonb then return qy_get(p_token); end if;
+  if l.settle_by is not null and l.settle_by <> s then
+    return qy_settle_answer(p_token, true);          -- both asked: that's a yes
+  end if;
+  update qy_ledgers set settle_by = s, settle_at = now(), settle_snapshot = snap, updated_at = now() where id = l.id;
   return qy_get(p_token);
 end $$;
 
--- only the person who added an entry can undo it
+-- the other person confirms (true) or declines (false); the asker can only cancel (false)
+create or replace function public.qy_settle_answer(p_token text, p_accept boolean)
+returns json language plpgsql volatile security definer set search_path = public as $$
+declare l qy_ledgers; s char(1); cur jsonb;
+begin
+  select * into l from qy_ledgers where a_token = p_token or b_token = p_token;
+  if not found then raise exception 'not found'; end if;
+  s := case when l.a_token = p_token then 'a' else 'b' end;
+  if l.status <> 'active' then raise exception 'not active'; end if;
+  if l.settle_by is null then return qy_get(p_token); end if;
+  if l.settle_by = s and p_accept then return qy_get(p_token); end if;   -- can't confirm your own request
+  if not p_accept then
+    update qy_ledgers set settle_by = null, settle_at = null, settle_snapshot = null, updated_at = now() where id = l.id;
+    return qy_get(p_token);
+  end if;
+  cur := _qy_balances(l.id, l.currency, 1)::jsonb;
+  update qy_ledgers set settle_by = null, settle_at = null, settle_snapshot = null, updated_at = now() where id = l.id;
+  if cur is distinct from l.settle_snapshot then
+    return json_build_object('changed', true);
+  end if;
+  insert into qy_entries(ledger_id, amount, by_side, kind, currency)
+  select l.id, -(x.value::numeric), l.settle_by, 'settle', x.key from jsonb_each_text(cur) x;
+  return qy_get(p_token);
+end $$;
+
+-- only the person who added an entry can undo it, and nothing from before a confirmed settle
 create or replace function public.qy_remove(p_token text, p_id uuid)
 returns json language plpgsql volatile security definer set search_path = public as $$
 declare l qy_ledgers; s char(1);
@@ -199,8 +239,13 @@ begin
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
   if l.status <> 'active' then raise exception 'not active'; end if;
-  update qy_entries set deleted = true where id = p_id and ledger_id = l.id and by_side = s;
-  update qy_ledgers set updated_at = now() where id = l.id;
+  -- a confirmed settle can't be undone by one side; undone entries stay visible, crossed out
+  update qy_entries e set deleted = true, deleted_at = now()
+   where e.id = p_id and e.ledger_id = l.id and e.by_side = s and e.kind = 'entry' and not e.deleted
+     and not exists (select 1 from qy_entries z where z.ledger_id = e.ledger_id and z.kind = 'settle' and z.created_at > e.created_at);
+  if found then
+    update qy_ledgers set updated_at = now(), settle_by = null, settle_at = null, settle_snapshot = null where id = l.id;
+  end if;
   return qy_get(p_token);
 end $$;
 
@@ -213,10 +258,11 @@ begin
   if not found then raise exception 'not found'; end if;
   s := case when l.a_token = p_token then 'a' else 'b' end;
   if l.status <> 'active' then raise exception 'not active'; end if;
-  update qy_entries
-     set disputed = not disputed,
-         dispute_reason = case when disputed then '' else _qy_clean(p_reason, 60) end
-   where id = p_id and ledger_id = l.id and by_side <> s and kind = 'entry';
+  update qy_entries e
+     set disputed = not e.disputed,
+         dispute_reason = case when e.disputed then '' else _qy_clean(p_reason, 60) end
+   where e.id = p_id and e.ledger_id = l.id and e.by_side <> s and e.kind = 'entry' and not e.deleted
+     and not exists (select 1 from qy_entries z where z.ledger_id = e.ledger_id and z.kind = 'settle' and z.created_at > e.created_at);
   update qy_ledgers set updated_at = now() where id = l.id;
   return qy_get(p_token);
 end $$;
@@ -240,7 +286,7 @@ begin
     insert into qy_entries(ledger_id, amount, note, by_side, currency, group_id, split_total, split_count)
     values (l.id, amt * case when s = 'a' then 1 else -1 end, _qy_clean(p_note, 140), s, p_currency, g, round(p_total, 2), p_count)
     returning id into eid;
-    update qy_ledgers set updated_at = now() where id = l.id;
+    update qy_ledgers set updated_at = now(), settle_by = null, settle_at = null, settle_snapshot = null where id = l.id;
     res := res || json_build_object('token', it->>'token', 'id', eid, 'amount', amt);
   end loop;
   return json_build_object('group_id', g, 'items', array_to_json(res));
@@ -341,7 +387,7 @@ revoke execute on function public._qy_token(), public._qy_balances(uuid, text, i
   from public, anon, authenticated;
 grant execute on function public.qy_get(text), public.qy_summaries(text[]),
   public.qy_create(text, text, text), public.qy_add(text, numeric, text, text),
-  public.qy_settle(text), public.qy_remove(text, uuid), public.qy_dispute(text, uuid, text),
+  public.qy_settle(text), public.qy_settle_answer(text, boolean), public.qy_remove(text, uuid), public.qy_dispute(text, uuid, text),
   public.qy_rename(text, text), public.qy_split(json, text, text, numeric, int),
   public.qy_invite_create(text), public.qy_invite_info(text), public.qy_join(text, text, text),
   public.qy_invite_requests(text), public.qy_invite_decide(text, uuid, boolean),

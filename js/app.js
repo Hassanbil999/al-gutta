@@ -78,6 +78,7 @@ function upsertTab(token, d) {
   Object.assign(x, {
     friend: d.friend, me: d.me, currency: d.currency, balance: d.balance, balances: d.balances, side: d.side,
     ledgerId: d.ledger_id, updatedAt: d.updated_at, shareToken: d.share_token ?? x.shareToken, lastCur: x.lastCur, status: d.status || 'active',
+    settle: d.settle_request ? (d.settle_request.by_me ? 'mine' : 'theirs') : null,
   });
   saveTabs();
   return x;
@@ -170,7 +171,7 @@ function tabRow(x) {
   const b = balsOf(x), mood = moodOfB(b);
   return `<li><button class="tab-row mood-${mood}" data-act="open" data-token="${esc(x.token)}">
     <span class="mini">${qamariya({ mood, variant: 'mini' })}</span>
-    <span class="who"><b>${esc(x.friend)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : statusOfB(b, x.friend)}</small></span>
+    <span class="who"><b>${esc(x.friend)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : x.settle === 'theirs' ? `<em class="wait">✦ ${T('settleAskShort')}</em>` : x.settle === 'mine' ? `<em class="wait">${T('settleWaitShort')}</em>` : statusOfB(b, x.friend)}</small></span>
     <span class="amt">${balList(b, x.currency).map(([c, v]) => signed(v, c)).join('')}</span>
   </button></li>`;
 }
@@ -207,26 +208,53 @@ function renderCounter() {
       <button class="act plus" data-act="add" data-dir="1"><span class="big">${T('plus')}</span><small>${T('plusSub')}</small></button>
       <button class="act minus" data-act="add" data-dir="-1"><span class="big">${T('minus')}</span><small>${T('minusSub')}</small></button>
     </div>
+    ${settleBox(d)}
     <div class="row2" ${d.status && d.status !== 'active' ? 'hidden' : ''}>
-      ${mood !== 'even' ? `<button class="btn ghost" data-act="settle">✦ ${T('settle')}</button>` : ''}
+      ${mood !== 'even' && !d.settle_request ? `<button class="btn ghost" data-act="settle">✦ ${T('settle')}</button>` : ''}
       ${canShare ? `<button class="btn ghost" data-act="share">${ICON.share} ${T('share')}</button>` : ''}
     </div>
     <section class="history" ${d.status && d.status !== 'active' && !d.entries.length ? 'hidden' : ''}>
       <h2>${T('history')}</h2>
-      ${d.entries.length ? `<ol>${d.entries.map((e) => entryRow(e, d)).join('')}</ol>`
+      ${d.entries.length ? `<ol>${d.entries.map((e) => entryRow(e, d, lastSettleAt(d))).join('')}</ol>`
                          : `<p class="muted center">${esc(T('empty')).replace('\n', '<br>')}</p>`}
     </section>
   </main>`;
 }
 
-function entryRow(e, d) {
+function settleBox(d) {
+  const r = d.settle_request;
+  if (!r || (d.status && d.status !== 'active')) return '';
+  const amounts = balList(r.balances || {}, d.currency).map(([c, v]) => signed(v, c)).join(' · ');
+  if (r.by_me) return `<div class="settle-box mine">
+      <p><b>${T('settleWaiting', esc(d.friend))}</b><span class="amts">${amounts}</span></p>
+      <button class="btn ghost small-btn" data-act="settle-cancel">${T('settleCancel')}</button></div>`;
+  return `<div class="settle-box theirs">
+      <p><b>✦ ${T('settleAsked', esc(d.friend))}</b><span class="amts">${amounts}</span></p>
+      <div class="row-btns"><button class="btn small-btn" data-act="settle-no">${T('settleNo')}</button>
+      <button class="btn pos small-btn" data-act="settle-yes">${T('settleYes')}</button></div></div>`;
+}
+
+// entries from before a confirmed settle are closed: no undo, no dispute
+const lastSettleAt = (d) => d.entries.reduce((m, e) => (e.kind === 'settle' && e.created_at > m ? e.created_at : m), '');
+
+function entryRow(e, d, settledAt = '') {
   const who = e.mine ? T('you') : esc(d.friend);
+  const closed = e.created_at < settledAt;
+  const other = e.mine ? esc(d.friend) : T('you');
   if (e.kind === 'settle') {
     return `<li class="entry settle">
       <span class="sign">✦</span>
-      <span class="meta"><b>${T('settled')}</b><small><bdi>${who}</bdi> · <bdi>${when(e.created_at)}</bdi></small></span>
+      <span class="meta"><b>${T('settled')}</b><small><bdi>${when(e.created_at)}</bdi> · ${T('settledBy', who, other)}</small></span>
       <span class="amt">${money(e.amount, e.currency || d.currency)}</span>
-      <span class="ops">${e.mine ? `<button class="link" data-act="undo" data-id="${e.id}">${T('undo')}</button>` : ''}</span>
+      <span class="ops"></span>
+    </li>`;
+  }
+  if (e.deleted) {
+    return `<li class="entry gone">
+      <span class="sign">↶</span>
+      <span class="meta"><b>${esc(e.note) || (e.amount > 0 ? T('lentPos') : T('lentNeg'))}</b><small>${T('undoneBy', who)} · <bdi>${when(e.deleted_at || e.created_at)}</bdi></small></span>
+      <span class="amt">${money(e.amount, e.currency || d.currency)}</span>
+      <span class="ops"></span>
     </li>`;
   }
   const pos = e.amount > 0;
@@ -237,7 +265,7 @@ function entryRow(e, d) {
       ${e.group_id && e.split_total ? `<span class="split-tag">${T('splitTag', money(e.split_total, e.currency || d.currency), nf().format(e.split_count))}</span>` : ''}
       ${e.disputed && e.dispute_reason ? `<span class="reason">«<bdi>${esc(e.dispute_reason)}</bdi>»</span>` : ''}</span>
     <span class="amt">${money(e.amount, e.currency || d.currency)}</span>
-    <span class="ops">${e.mine
+    <span class="ops">${closed ? '' : e.mine
       ? `<button class="link" data-act="undo" data-id="${e.id}">${T('undo')}</button>`
       : `<button class="link" data-act="dispute" data-id="${e.id}" data-disputed="${e.disputed ? 1 : 0}">${e.disputed ? T('undispute') : T('dispute')}</button>`}</span>
   </li>`;
@@ -266,12 +294,18 @@ async function refresh({ first = false } = {}) {
       location.replace('#/t/' + mine.token);
       return;
     }
+    const before = c.data?.settle_request, after = d.settle_request;
+    let cheer = false;
+    if (c.data && before?.by_me && !after) {
+      if (moodOfB(balsOf(d)) === 'even') { toast(T('settleConfirmed', d.friend)); cheer = true; } else toast(T('settleDropped'));
+    } else if (c.data && !before && after && !after.by_me) toast(T('settleAsked', d.friend));
     const changed = JSON.stringify(d) !== JSON.stringify(c.data) || c.offline;
     c.data = d; c.offline = false; c.missing = false;
     LS.set('qy.snap.' + c.token, d);
     upsertTab(c.token, d);
     if (!settings.name) { settings.name = d.me; saveSettings(); }
     if (changed) renderCounter();
+    if (cheer) celebrate();
     if (first && d.side === 'b' && d.status !== 'pending') welcomeSheet(d);
   } catch (e) {
     if (current !== c) return;
@@ -317,8 +351,8 @@ async function refreshHome() {
     let changed = false;
     for (const s of list || []) {
       const x = tabs.find((x) => x.token === s.token);
-      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at || (x.status || 'active') !== (s.status || 'active'))) {
-        Object.assign(x, { balances: s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side, status: s.status || 'active' });
+      if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at || (x.status || 'active') !== (s.status || 'active') || (x.settle || null) !== (s.settle || null))) {
+        Object.assign(x, { balances: s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side, status: s.status || 'active', settle: s.settle || null });
         changed = true;
       }
     }
@@ -583,24 +617,35 @@ function inviteSheet() {
     return;
   }
   const url = joinLink(inv.code);
-  const text = T('inviteText', settings.name);
+  const text = settings.inviteMsg || T('inviteText', settings.name || '');
   sheet(`<div class="stack share">
     <div class="share-art">${qamariya({ mood: inv.enabled ? 'even' : 'minus', variant: 'mini' })}</div>
     <h2 class="sheet-title">${T('inviteTitle')}</h2>
     <p class="muted">${inv.enabled ? T('inviteOn') : T('inviteOffNote')}</p>
+    ${inv.enabled ? `<label class="field"><span>${T('inviteMsg')}</span>
+      <textarea name="invite-msg" rows="4" maxlength="400">${esc(text)}</textarea></label>` : ''}
     <div class="linkbox ${inv.enabled ? '' : 'off'}" dir="ltr"><span>${esc(url)}</span></div>
     ${inv.enabled ? `<div class="row-btns">
-      <a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}" target="_blank" rel="noopener">${ICON.wa} ${T('whatsapp')}</a>
-      <button class="btn" data-copy>${ICON.copy} ${T('copy')}</button></div>` : ''}
+      <a class="btn wa" data-wa href="https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}" target="_blank" rel="noopener">${ICON.wa} ${T('whatsapp')}</a>
+      <button class="btn" data-copy>${ICON.copy} ${T('copy')}</button></div>
+      ${navigator.share ? `<button class="btn ghost" data-native>${ICON.share} ${T('more')}</button>` : ''}` : ''}
     <div class="row-btns">
       <button class="btn ghost" data-act="invite-toggle">${inv.enabled ? T('inviteOff') : T('inviteOnBtn')}</button>
       <button class="btn ghost neg-text" data-act="invite-reset">${T('inviteReset')}</button>
     </div>
     <p class="muted small">${T('inviteSafety')}</p>
   </div>`, (el) => {
-    $('[data-copy]', el)?.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(url); toast(T('copied')); } catch { toast(url); }
+    // the message travels with the link; edits are remembered on this phone
+    const msg = () => ($('[name=invite-msg]', el)?.value.trim() || T('inviteText', settings.name || ''));
+    $('[name=invite-msg]', el)?.addEventListener('input', () => {
+      const v = $('[name=invite-msg]', el).value.trim();
+      settings.inviteMsg = v && v !== T('inviteText', settings.name || '') ? v : ''; saveSettings();
+      $('[data-wa]', el).href = 'https://wa.me/?text=' + encodeURIComponent(msg() + '\n' + url);
     });
+    $('[data-copy]', el)?.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(msg() + '\n' + url); toast(T('copied')); } catch { toast(url); }
+    });
+    $('[data-native]', el)?.addEventListener('click', () => navigator.share({ title: T('appName'), text: msg(), url }).catch(() => {}));
   });
 }
 
@@ -850,11 +895,21 @@ document.addEventListener('click', async (e) => {
   else if (act === 'install') { installPrompt?.prompt(); installPrompt = null; closeSheet(); }
   else if (act === 'settle') {
     const d = current.data;
-    confirmSheet({ title: T('settleQ', esc(d.friend)), body: T('settleHint'), ok: T('settle'), onOk: async () => {
+    confirmSheet({ title: T('settleQ', esc(d.friend)), body: T('settleHint', esc(d.friend)), ok: T('settleSend'), onOk: async () => {
       const r = await busy(null, () => api.settle(current.token));
       closeSheet();
-      if (r) { setData(r); toast(T('settledToast')); celebrate(); }
+      if (!r) return;
+      setData(r);
+      if (moodOfB(balsOf(r)) === 'even') { toast(T('settledToast')); celebrate(); } else toast(T('settleSent', d.friend));
     } });
+  }
+  else if (act === 'settle-yes' || act === 'settle-no' || act === 'settle-cancel') {
+    const r = await busy(el, () => api.settleAnswer(current.token, act === 'settle-yes'));
+    if (!r) return;
+    if (r.changed) { toast(T('settleChanged')); refresh(); return; }
+    setData(r);
+    if (act === 'settle-yes') { toast(T('settledToast')); celebrate(); }
+    else toast(act === 'settle-no' ? T('settleDeclined') : T('settleCancelled'));
   }
   else if (act === 'dispute' && el.dataset.disputed !== '1') disputeSheet(el.dataset.id);
   else if (act === 'undo' || act === 'dispute') {

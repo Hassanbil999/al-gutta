@@ -27,6 +27,7 @@ const remote = {
   summaries: (tokens) => rpc('qy_summaries', { p_tokens: tokens }),
   add: (token, amount, note, currency) => rpc('qy_add', { p_token: token, p_amount: amount, p_note: note, p_currency: currency }),
   settle: (token) => rpc('qy_settle', { p_token: token }),
+  settleAnswer: (token, accept) => rpc('qy_settle_answer', { p_token: token, p_accept: accept }),
   remove: (token, id) => rpc('qy_remove', { p_token: token, p_id: id }),
   dispute: (token, id, reason = '') => rpc('qy_dispute', { p_token: token, p_id: id, p_reason: reason }),
   rename: (token, name) => rpc('qy_rename', { p_token: token, p_name: name }),
@@ -75,11 +76,14 @@ function view(db, token) {
     currency: l.currency, created_at: l.created_at, updated_at: l.updated_at,
     share_token: s === 'a' ? l.b_token : null,
     status: l.status || 'active',
+    settle_request: l.settle_by ? { by_me: l.settle_by === s, at: l.settle_at,
+      balances: Object.fromEntries(Object.entries(l.settle_snapshot || {}).map(([c, v]) => [c, r2(v * sg)])) } : null,
+    settle: l.settle_by ? (l.settle_by === s ? 'mine' : 'theirs') : null,
     balance: balancesOf(db, l, sg)[l.currency] || 0,
     balances: balancesOf(db, l, sg),
-    entries: db.entries.filter((e) => e.ledger_id === l.id && !e.deleted)
+    entries: db.entries.filter((e) => e.ledger_id === l.id)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, currency: e.currency || l.currency, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, dispute_reason: e.dispute_reason || '', group_id: e.group_id || null, split_total: e.split_total ?? null, split_count: e.split_count ?? null, created_at: e.created_at })),
+      .map((e) => ({ id: e.id, amount: e.amount * sg, note: e.note, currency: e.currency || l.currency, mine: e.by_side === s, kind: e.kind, disputed: e.disputed, dispute_reason: e.dispute_reason || '', group_id: e.group_id || null, split_total: e.split_total ?? null, split_count: e.split_count ?? null, deleted: !!e.deleted, deleted_at: e.deleted_at || null, created_at: e.created_at })),
   };
 }
 function mutate(token, fn, any = false) {
@@ -90,6 +94,21 @@ function mutate(token, fn, any = false) {
   f.l.updated_at = now();
   save(db);
   return view(db, token);
+}
+const settledAfter = (db, e) => db.entries.some((z) => z.ledger_id === e.ledger_id && z.kind === 'settle' && z.created_at > e.created_at);
+const clearSettle = (l) => { l.settle_by = null; l.settle_at = null; l.settle_snapshot = null; };
+function answer(db, token, accept) {
+  const f = find(db, token);
+  if (!f) throw new Error('not found');
+  const { l, s } = f;
+  if (!l.settle_by || (l.settle_by === s && accept)) return view(db, token);
+  const snap = l.settle_snapshot, by = l.settle_by;
+  clearSettle(l); l.updated_at = now();
+  if (!accept) { save(db); return view(db, token); }
+  const cur = balancesOf(db, l, 1);
+  if (JSON.stringify(Object.entries(cur).sort()) !== JSON.stringify(Object.entries(snap || {}).sort())) { save(db); return { changed: true }; }
+  for (const [c, v] of Object.entries(cur)) db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: -v, currency: c, note: '', by_side: by, kind: 'settle', disputed: false, dispute_reason: '', deleted: false });
+  save(db); return view(db, token);
 }
 const later = (fn) => new Promise((res, rej) => setTimeout(() => { try { res(fn()); } catch (e) { rej(e); } }, 60));
 
@@ -111,19 +130,24 @@ const local = {
     if (!amount || Math.abs(amount) > 1e12) throw new Error('bad amount');
     const cur = currency || l.currency;
     db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: amount * (s === 'a' ? 1 : -1), currency: cur, note: clean(note, 140), by_side: s, kind: 'entry', disputed: false, dispute_reason: '', deleted: false });
-    l.currency = cur;
+    l.currency = cur; clearSettle(l);
   })),
-  settle: (token) => later(() => mutate(token, (db, l, s) => {
-    for (const [cur, bal] of Object.entries(balancesOf(db, l, 1))) {
-      db.entries.push({ id: uuid(), ledger_id: l.id, created_at: now(), amount: -bal, currency: cur, note: '', by_side: s, kind: 'settle', disputed: false, dispute_reason: '', deleted: false });
-    }
-  })),
+  settle: (token) => later(() => {
+    const db = load(), f = find(db, token);
+    if (!f) throw new Error('not found');
+    const { l, s } = f, snap = balancesOf(db, l, 1);
+    if (!Object.keys(snap).length) return view(db, token);
+    if (l.settle_by && l.settle_by !== s) return answer(db, token, true);
+    Object.assign(l, { settle_by: s, settle_at: now(), settle_snapshot: snap, updated_at: now() });
+    save(db); return view(db, token);
+  }),
+  settleAnswer: (token, accept) => later(() => answer(load(), token, accept)),
   remove: (token, id) => later(() => mutate(token, (db, l, s) => {
-    const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side === s);
-    if (e) e.deleted = true;
+    const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side === s && e.kind === 'entry' && !e.deleted && !settledAfter(db, e));
+    if (e) { e.deleted = true; e.deleted_at = now(); clearSettle(l); }
   })),
   dispute: (token, id, reason = '') => later(() => mutate(token, (db, l, s) => {
-    const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side !== s && e.kind === 'entry');
+    const e = db.entries.find((e) => e.id === id && e.ledger_id === l.id && e.by_side !== s && e.kind === 'entry' && !e.deleted && !settledAfter(db, e));
     if (e) { e.dispute_reason = e.disputed ? '' : clean(reason, 60); e.disputed = !e.disputed; }
   })),
   split: (items, note, currency, total, count) => later(() => {
@@ -135,7 +159,7 @@ const local = {
       if (!(amt > 0) || amt > total) throw new Error('bad amount');
       const id = uuid();
       db.entries.push({ id, ledger_id: f.l.id, created_at: now(), amount: amt * (f.s === 'a' ? 1 : -1), currency, note: clean(note, 140), by_side: f.s, kind: 'entry', disputed: false, dispute_reason: '', deleted: false, group_id: g, split_total: r2(total), split_count: count });
-      f.l.updated_at = now();
+      f.l.updated_at = now(); clearSettle(f.l);
       out.push({ token: it.token, id, amount: amt });
     }
     save(db);
