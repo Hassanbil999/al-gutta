@@ -648,6 +648,106 @@ function renderJoin(code) {
   }).catch(() => { body.innerHTML = `<p class="tagline">${T('error')}</p>`; });
 }
 
+// ---------- first-use tutorial ----------
+const tourSeen = () => !!LS.get('qy.tour', 0);
+const TOUR_OWNER = ['welcome', 'add', 'share', 'plusminus', 'split', 'dispute', 'settle'];
+const TOUR_GUEST = ['guest', 'plusminus', 'dispute', 'settle'];
+
+function tourArt(k) {
+  const mini = (m = 'even') => qamariya({ mood: m, variant: 'mini' });
+  switch (k) {
+    case 'welcome': case 'guest':
+      return `<div class="ta-win mood-even">${qamariya({ mood: 'even', variant: 'full' })}</div>`;
+    case 'add':
+      return `<div class="ta-card ta-i1"><span class="ta-mini">${mini()}</span><b>${settings.lang === 'ar' ? 'عبدو' : 'Abdo'}</b><small>${T('even')}</small></div>
+              <div class="ta-pill ta-i2">+ ${T('addFriend')}</div>`;
+    case 'share':
+      return `<div class="ta-bubble ta-i1" dir="ltr">🔗 al-gutta/#/t/…</div>
+              <div class="ta-row ta-i2"><span class="ta-btn wa">${ICON.wa} ${T('whatsapp')}</span><span class="ta-btn">${ICON.link}</span></div>`;
+    case 'plusminus':
+      return `<div class="ta-amt ta-i1">${money(3000, 'USD')}</div>
+              <div class="ta-row ta-i2"><span class="act plus"><span class="big">${T('plus')}</span></span><span class="act minus"><span class="big">${T('minus')}</span></span></div>
+              <div class="ta-row ta-i3 chips">${['USD', 'LBP', 'YER', 'SAR'].map((c, i) => `<span class="chip"><span class="${i ? '' : 'on'}">${esc(curLabel(c))}</span></span>`).join('')}</div>`;
+    case 'split':
+      return `<span class="split-badge big ta-i1">${ICON.divide}</span>
+              <div class="ta-row ta-i2">${[T('you'), settings.lang === 'ar' ? 'عبدو' : 'Abdo', settings.lang === 'ar' ? 'علي' : 'Ali'].map((n, i) =>
+                `<span class="ta-av"><i style="background:${['#7A4A2E', '#2F7D5B', '#2C4A8A'][i]}">${esc(n.slice(0, 1))}</i><small>${esc(n)}</small><b>${money(30, 'USD')}</b></span>`).join('')}</div>`;
+    case 'dispute':
+      return `<div class="ta-entry ta-i1"><span class="sign">+</span><span><b>${settings.lang === 'ar' ? 'غداء' : 'Lunch'}</b><small>${T('disputed')}</small></span><span class="amt">${money(30, 'USD')}</span></div>
+              <span class="reason ta-i2">«${T('tourReasonEx')}»</span>`;
+    case 'settle':
+      return `<div class="ta-win small mood-even ta-i1">${qamariya({ mood: 'even', variant: 'full' })}</div>
+              <div class="ta-zero ta-i2">${settings.lang === 'ar' ? 'صفر' : '0'} <small>${T('even')}</small></div>`;
+  }
+  return '';
+}
+
+function tour(kind = 'owner', onDone) {
+  document.getElementById('tour')?.remove();
+  const keys = kind === 'guest' ? TOUR_GUEST : TOUR_OWNER;
+  const slides = keys.map((k) => ({ k, ...T('tour')[k] }));
+  const el = document.createElement('div');
+  el.id = 'tour';
+  el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', T('tourLabel'));
+  el.innerHTML = `
+    <div class="tour-top"><span class="tour-count" dir="ltr"></span><button class="tour-skip" data-t="skip">${T('tourSkip')}</button></div>
+    <div class="tour-view"><div class="tour-track">${slides.map((s) => `
+      <section class="tour-slide" aria-hidden="true">
+        <div class="tour-art">${tourArt(s.k)}</div>
+        <h2>${s.t}</h2><p>${s.b}</p>
+      </section>`).join('')}</div></div>
+    <div class="tour-dots">${slides.map((_, i) => `<button data-t="dot" data-i="${i}" aria-label="${i + 1}"></button>`).join('')}</div>
+    <div class="tour-nav">
+      <button class="btn ghost" data-t="back">${T('tourBack')}</button>
+      <button class="btn primary big" data-t="next"></button>
+    </div>`;
+  document.body.appendChild(el);
+  const track = $('.tour-track', el), secs = [...el.querySelectorAll('.tour-slide')], dots = [...el.querySelectorAll('.tour-dots button')];
+  const rtl = document.documentElement.dir === 'rtl';
+  let i = 0;
+  const go = (n) => {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    track.style.transform = `translateX(${(rtl ? 1 : -1) * i * 100}%)`;
+    secs.forEach((s, j) => { s.classList.toggle('active', j === i); s.setAttribute('aria-hidden', j === i ? 'false' : 'true'); });
+    dots.forEach((d, j) => d.classList.toggle('on', j === i));
+    $('[data-t=back]', el).style.visibility = i ? 'visible' : 'hidden';
+    $('[data-t=next]', el).textContent = i === slides.length - 1 ? T('tourStart') : T('tourNext');
+    $('.tour-count', el).textContent = `${nf().format(i + 1)} / ${nf().format(slides.length)}`;
+  };
+  const finish = () => {
+    LS.set('qy.tour', 1);
+    el.classList.add('out');
+    document.removeEventListener('keydown', onKey);
+    setTimeout(() => el.remove(), 250);
+    onDone?.();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') finish();
+    else if (e.key === 'ArrowLeft') go(i + (rtl ? 1 : -1));
+    else if (e.key === 'ArrowRight') go(i + (rtl ? -1 : 1));
+  };
+  document.addEventListener('keydown', onKey);
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-t]'); if (!b) return;
+    const a = b.dataset.t;
+    if (a === 'skip') finish();
+    else if (a === 'next') (i === slides.length - 1 ? finish() : go(i + 1));
+    else if (a === 'back') go(i - 1);
+    else if (a === 'dot') go(Number(b.dataset.i));
+  });
+  // swipe
+  let x0 = null;
+  el.addEventListener('pointerdown', (e) => { x0 = e.clientX; });
+  el.addEventListener('pointerup', (e) => {
+    if (x0 == null) return;
+    const dx = e.clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) go(i + ((dx < 0) !== rtl ? 1 : -1));
+  });
+  go(0);
+  requestAnimationFrame(() => el.classList.add('in'));
+  setTimeout(() => $('[data-t=next]', el).focus(), 300);
+}
+
 function settingsSheet() {
   const seg = (name, opts, val) => `<div class="seg">${opts.map(([v, l]) =>
     `<label><input type="radio" name="${name}" value="${v}" ${v === val ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
@@ -657,6 +757,7 @@ function settingsSheet() {
     <div class="field"><span>${T('language')}</span>${seg('lang', [['ar', 'العربية'], ['en', 'English']], settings.lang)}</div>
     <div class="field"><span>${T('numerals')}</span>${seg('nums', [['arab', '١٢٣'], ['latn', '123']], nums())}</div>
     <button class="btn primary" type="submit">${T('save')}</button>
+    <button class="btn ghost" type="button" data-act="tour">✦ ${T('tourAgain')}</button>
     ${installHtml()}
   </form>`);
 }
@@ -715,6 +816,7 @@ document.addEventListener('click', async (e) => {
   }
   else if (act === 'settings') settingsSheet();
   else if (act === 'invite') inviteSheet();
+  else if (act === 'tour') { closeSheet(true); tour(current?.data?.side === 'b' && !tabs.some((x) => x.side === 'a') ? 'guest' : 'owner'); }
   else if (act === 'requests') requestsSheet();
   else if (act === 'invite-create') {
     if (!settings.name) { closeSheet(); settingsSheet(); return; }
@@ -775,7 +877,8 @@ document.addEventListener('submit', async (e) => {
   const fd = new FormData(form), kind = form.dataset.form, btn = form.querySelector('[type=submit]');
 
   if (kind === 'start') {
-    settings.name = String(fd.get('name')).trim(); saveSettings(); renderHome(); newTabSheet();
+    settings.name = String(fd.get('name')).trim(); saveSettings(); renderHome();
+    if (tourSeen()) newTabSheet(); else tour('owner', () => newTabSheet());
   }
   else if (kind === 'new') {
     if (fd.get('me')) { settings.name = String(fd.get('me')).trim(); saveSettings(); }
@@ -830,6 +933,7 @@ document.addEventListener('submit', async (e) => {
       tabs.unshift({ token: r.token, friend: '', me: name, currency: cur, balance: 0, side: 'b', status: 'pending' });
       saveTabs();
       location.replace('#/t/' + r.token);
+      if (!tourSeen()) setTimeout(() => tour('guest'), 500);
     } catch (err) {
       btn.disabled = false;
       const m = String(err.message || '');
@@ -848,6 +952,7 @@ document.addEventListener('submit', async (e) => {
     }
     if (!settings.name) { settings.name = name; saveSettings(); }
     closeSheet();
+    if (kind === 'welcome' && !tourSeen()) setTimeout(() => tour('guest'), 300);
   }
   else if (kind === 'settings') {
     settings.name = String(fd.get('name') || '').trim();
@@ -864,7 +969,10 @@ function route() {
   const m = location.hash.match(/^#\/t\/([\w-]{10,64})/);
   if (m) {
     if (current?.token === m[1]) renderCounter(); else openCounter(m[1]);
-  } else { renderHome(); refreshHome(); startHomePoll(); }
+  } else {
+    renderHome(); refreshHome(); startHomePoll();
+    if (settings.name && !tourSeen() && !document.getElementById('tour')) tour('owner');
+  }
 }
 window.addEventListener('hashchange', () => { closeSheet(true); route(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) current ? refresh() : refreshHome(); });
