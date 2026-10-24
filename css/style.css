@@ -385,3 +385,9 @@ bdi.money .cur { font-size: .62em; opacity: .75; font-family: var(--f-body); fon
 .entry.gone .meta b { text-decoration: line-through; font-weight: 400; }
 .field textarea { font: 15px/1.6 var(--f-body); color: var(--ink); background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 12px 14px; outline: none; resize: vertical; text-align: start; }
 .field textarea:focus { border-color: var(--saffron); box-shadow: 0 0 0 4px color-mix(in srgb, var(--saffron) 22%, transparent); }
+
+/* rows that leave the home list fade and fold away */
+.tabs li { max-height: 200px; }
+.tabs li.leaving { overflow: hidden; animation: rowLeave .4s ease forwards; }
+@keyframes rowLeave { 0% { opacity: 1; } 60% { opacity: 0; transform: translateX(24px) scale(.97); max-height: 200px; } 100% { opacity: 0; max-height: 0; margin: 0; } }
+@media (prefers-reduced-motion: reduce) { .tabs li.leaving { animation-duration: .01s; } }

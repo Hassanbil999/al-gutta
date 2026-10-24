@@ -34,6 +34,7 @@ const saveSplits = () => LS.set('qy.splits', splits);
 let homeView = 'friends';      // 'friends' | 'splits'
 let requests = [];             // people asking to open a tab through my invite link
 let homeTimer = null;
+let pendingLeave = null;       // a tab I just removed: animate it out on the home screen
 let current = null;            // { token, data, offline, missing }
 let pollTimer = null;
 let installPrompt = null;
@@ -203,7 +204,8 @@ function renderCounter() {
       : `<div class="amount">${mood === 'even' ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>` : money(list[0][1], list[0][0])}</div>
          <div class="status">${statusOfB(bals, d.friend)}</div>`}
     </div>
-    ${d.status && d.status !== 'active' ? `<p class="banner ${d.status === 'declined' ? 'warn' : ''} pending-note">${d.status === 'pending' ? T('pendingNote', esc(d.friend)) : T('declinedNote', esc(d.friend))}</p>` : ''}
+    ${d.status && d.status !== 'active' ? `<p class="banner ${d.status === 'declined' ? 'warn' : ''} pending-note">${d.status === 'pending' ? T('pendingNote', esc(d.friend)) : T('declinedNote', esc(d.friend))}</p>
+      ${d.status === 'declined' ? `<button class="btn ghost neg-text" data-act="remove-now">${ICON.trash} ${T('remove')}</button>` : ''}` : ''}
     <div class="actions" ${d.status && d.status !== 'active' ? 'hidden' : ''}>
       <button class="act plus" data-act="add" data-dir="1"><span class="big">${T('plus')}</span><small>${T('plusSub')}</small></button>
       <button class="act minus" data-act="add" data-dir="-1"><span class="big">${T('minus')}</span><small>${T('minusSub')}</small></button>
@@ -358,8 +360,27 @@ async function refreshHome() {
     }
     tabs.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     saveTabs();
+    // tabs that ended on the other side leave the list by themselves:
+    // a request that was declined, or a tab that no longer exists on the server
+    const found = new Set((list || []).map((s) => s.token));
+    const gone = tabs.filter((x) => (x.status === 'declined' && x.side === 'b') || (x.ledgerId && !found.has(x.token)));
+    if (gone.length) { dropTabs(gone); return; }
     if (changed && !current) renderHome();
   } catch {}
+}
+
+function dropTabs(gone) {
+  const tokens = new Set(gone.map((x) => x.token));
+  const finish = () => {
+    tabs = tabs.filter((x) => !tokens.has(x.token)); saveTabs();
+    tokens.forEach((t) => LS.del('qy.snap.' + t));
+    if (!current) renderHome();
+  };
+  gone.forEach((x) => { if (x.status !== 'removed') toast(x.status === 'declined' ? T('reqDeclinedToast', x.friend || '') : T('tabGone')); });
+  if (current) return finish();
+  const rows = [...document.querySelectorAll('.tab-row')].filter((r) => tokens.has(r.dataset.token));
+  rows.forEach((r) => r.closest('li')?.classList.add('leaving'));
+  setTimeout(finish, rows.length ? 420 : 0);
 }
 
 // ---------- sheets ----------
@@ -861,6 +882,11 @@ document.addEventListener('click', async (e) => {
   }
   else if (act === 'settings') settingsSheet();
   else if (act === 'invite') inviteSheet();
+  else if (act === 'remove-now') {
+    const tok = current.token;
+    tabs = tabs.filter((x) => x.token !== tok); saveTabs(); LS.del('qy.snap.' + tok);
+    toast(T('removed')); location.hash = '#/';
+  }
   else if (act === 'tour') { closeSheet(true); tour(current?.data?.side === 'b' && !tabs.some((x) => x.side === 'a') ? 'guest' : 'owner'); }
   else if (act === 'requests') requestsSheet();
   else if (act === 'invite-create') {
@@ -919,8 +945,8 @@ document.addEventListener('click', async (e) => {
   else if (act === 'remove') {
     const tok = current.token;
     confirmSheet({ title: T('remove'), body: T('removeQ'), danger: true, ok: T('remove'), onOk: () => {
-      tabs = tabs.filter((x) => x.token !== tok); saveTabs(); LS.del('qy.snap.' + tok);
-      closeSheet(true); toast(T('removed')); location.hash = '#/';
+      closeSheet(true); toast(T('removed'));
+      pendingLeave = tok; location.hash = '#/';
     } });
   }
 });
@@ -1025,7 +1051,9 @@ function route() {
   if (m) {
     if (current?.token === m[1]) renderCounter(); else openCounter(m[1]);
   } else {
-    renderHome(); refreshHome(); startHomePoll();
+    renderHome(); startHomePoll();
+    if (pendingLeave) { const t = tabs.find((x) => x.token === pendingLeave); pendingLeave = null; if (t) { dropTabs([{ ...t, status: 'removed' }]); return; } }
+    refreshHome();
     if (settings.name && !tourSeen() && !document.getElementById('tour')) tour('owner');
   }
 }
