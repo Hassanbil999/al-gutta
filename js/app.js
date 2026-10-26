@@ -20,6 +20,9 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   divide: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/><circle class="fill" cx="12" cy="6.2" r="1.7"/><circle class="fill" cx="12" cy="17.8" r="1.7"/></svg>',
   link: '<svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 006.4 0l3-3a4.5 4.5 0 00-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 00-6.4 0l-3 3a4.5 4.5 0 006.4 6.4l1.2-1.2"/></svg>',
+  pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 4 3H6l4-3zM12 13v7"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>',
+  bell: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15zM10 20a2 2 0 004 0"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
 };
 
@@ -64,6 +67,32 @@ const statusOfB = (b, name) => {
   return m === 'mixed' ? T('mixed') : m === 'even' ? T('even') : m === 'plus' ? T('owesYou', esc(name)) : T('youOwe', esc(name));
 };
 const r2 = (x) => Math.round(x * 100) / 100;
+
+// exchange rates: units per 1 US dollar. Only for showing one combined total —
+// every amount stays recorded in its own currency.
+const DEFAULT_RATES = { USD: 1, LBP: 89500, YER: 535, SAR: 3.75, AED: 3.6725, EUR: 0.89, EGP: 55.7 };
+const mainCur = () => settings.mainCur || 'USD';
+const rate = (c) => Number(settings.rates?.[c]) || DEFAULT_RATES[c] || 1;
+const toMain = (v, c) => (v / rate(c)) * rate(mainCur());
+const netOf = (b) => r2(Object.entries(b || {}).reduce((a, [c, v]) => a + toMain(v, c), 0));
+const plain = (v, c) => `${nf().format(Math.abs(v))} ${curLabel(c)}`;
+const curLabelOf = (c) => curLabel(c);
+// mood and wording follow the combined total; 'mixed' = amounts on both sides that cancel out
+const moodNet = (b) => {
+  const list = Object.values(b || {}).filter((n) => Math.abs(n) >= 0.005);
+  if (!list.length) return 'even';
+  const n = netOf(b);
+  const tiny = Math.abs(n) < (mainCur() === 'LBP' || mainCur() === 'YER' ? 0.5 : 0.005);
+  return tiny ? 'mixed' : n > 0 ? 'plus' : 'minus';
+};
+const statusNet = (b, name) => {
+  const m = moodNet(b);
+  return m === 'even' ? T('even') : m === 'mixed' ? T('nearlyEven') : m === 'plus' ? T('owesYou', esc(name)) : T('youOwe', esc(name));
+};
+// "1 $ = 89,500 ل.ل" for the currencies in this balance
+const rateLine = (b) => Object.keys(b || {}).filter((c) => c !== 'USD').map((c) => `${nf().format(1)} $ = ${nf().format(rate(c))} ${curLabel(c)}`).join(' · ');
+const nickOf = (token, fallback) => tabs.find((x) => x.token === token)?.nick || fallback;
+const sortTabs = () => tabs.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 const signed = (v, c) => `<span class="${v > 0 ? 'pos' : 'neg'}">${money(v, c)}</span>`;
 const linkFor = (tok) => location.origin + location.pathname.replace(/index\.html$/, '') + '#/t/' + tok;
 const parseAmount = (s) => {
@@ -126,17 +155,17 @@ function renderHome() {
   stopPoll();
   current = null;
   if (!settings.name && !tabs.length) return renderOnboard();
-  const totals = {};
+  sortTabs();
+  let plusT = 0, minusT = 0, converted = false;
   for (const x of tabs) {
-    for (const [cur, v] of Object.entries(balsOf(x))) {
-      const c = (totals[cur] ??= { plus: 0, minus: 0 });
-      if (v > 0) c.plus = r2(c.plus + v); else c.minus = r2(c.minus - v);
-    }
+    const b = balsOf(x);
+    if (Object.keys(b).some((c) => c !== mainCur())) converted = true;
+    const n = netOf(b);
+    if (n > 0) plusT += n; else minusT -= n;
   }
-  const curs = Object.keys(totals);
-  const totalLines = (k) => curs.filter((c) => totals[c][k] > 0.004).map((c) => `<div>${money(totals[c][k], c)}</div>`).join('') || `<div class="zero">${money(0, curs[0] || tabs[0]?.currency || 'USD')}</div>`;
+  const totalLines = (k) => { const v = r2(k === 'plus' ? plusT : minusT); return `<div class="${v > 0.004 ? '' : 'zero'}">${converted && v > 0.004 ? '<span class="approx">≈</span>' : ''}${money(v, mainCur())}</div>`; };
   app.innerHTML = `
-  ${header({ title: T('appName'), actions: `<button class="icon-btn" data-act="invite" aria-label="${T('inviteTitle')}">${ICON.link}</button><button class="icon-btn" data-act="settings" aria-label="${T('settings')}">${ICON.gear}</button>` })}
+  ${header({ title: T('appName'), actions: `<button class="icon-btn bell" data-act="activity" aria-label="${T('activity')}">${ICON.bell}${unread() ? `<i class="badge">${nf().format(unread())}</i>` : ''}</button><button class="icon-btn" data-act="invite" aria-label="${T('inviteTitle')}">${ICON.link}</button><button class="icon-btn" data-act="settings" aria-label="${T('settings')}">${ICON.gear}</button>` })}
   ${demoBanner()}
   ${requests.length ? `<button class="req-banner" data-act="requests"><span class="dot">${nf().format(requests.length)}</span> ${T('reqBanner', nf().format(requests.length))}</button>` : ''}
   <main class="home">
@@ -150,7 +179,8 @@ function renderHome() {
         <div class="sum plus"><small>${T('owedToYou')}</small>${totalLines('plus')}</div>
         <div class="sum minus"><small>${T('youOweTotal')}</small>${totalLines('minus')}</div>
       </section>
-      <ul class="tabs">${tabs.map(tabRow).join('')}</ul>` : splitsList()}`
+      <ul class="tabs">${tabs.map(tabRow).join('')}</ul>
+      ${tabs.length && !settings.swiped ? `<p class="swipe-hint">${T('swipeHint')}</p>` : ''}` : splitsList()}`
     : `<div class="empty-home">${qamariya({ mood: 'even', variant: 'mini' })}<p>${esc(T('homeEmpty')).replace('\n', '<br>')}</p></div>`}
   </main>
   <div class="fab-bar">
@@ -169,18 +199,27 @@ function splitsList() {
 }
 
 function tabRow(x) {
-  const b = balsOf(x), mood = moodOfB(b);
-  return `<li><button class="tab-row mood-${mood}" data-act="open" data-token="${esc(x.token)}">
+  const b = balsOf(x), mood = moodNet(b), name = x.nick || x.friend || '';
+  const list = balList(b, x.currency), net = netOf(b);
+  const amt = !list.length ? '' : list.length === 1 && list[0][0] === mainCur() ? signed(list[0][1], list[0][0])
+    : `<span class="net">${list.length > 1 || list[0][0] !== mainCur() ? '<span class="approx">≈</span>' : ''}${signed(net, mainCur())}</span><small class="parts">${list.map(([c, v]) => (v > 0 ? '+' : '−') + plain(v, c)).join(' · ')}</small>`;
+  return `<li class="swipe" data-token="${esc(x.token)}">
+    <div class="row-actions">
+      <button data-act="pin" data-token="${esc(x.token)}">${ICON.pin}<small>${x.pinned ? T('unpin') : T('pin')}</small></button>
+      <button data-act="nick" data-token="${esc(x.token)}">${ICON.pencil}<small>${T('nick')}</small></button>
+      <button class="danger" data-act="del" data-token="${esc(x.token)}">${ICON.trash}<small>${T('del')}</small></button>
+    </div>
+    <button class="tab-row mood-${mood}" data-act="open" data-token="${esc(x.token)}">
     <span class="mini">${qamariya({ mood, variant: 'mini' })}</span>
-    <span class="who"><b>${esc(x.friend)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : x.locked ? `<em class="wait no">🔒 ${T('lockedShort')}</em>` : x.settle === 'theirs' ? `<em class="wait">✦ ${T('settleAskShort')}</em>` : x.settle === 'mine' ? `<em class="wait">${T('settleWaitShort')}</em>` : statusOfB(b, x.friend)}</small></span>
-    <span class="amt">${balList(b, x.currency).map(([c, v]) => signed(v, c)).join('')}</span>
+    <span class="who"><b>${x.pinned ? '<i class="pinned">📌</i>' : ''}${esc(name)}</b><small>${x.status === 'pending' ? `<em class="wait">${T('waiting')}</em>` : x.status === 'declined' ? `<em class="wait no">${T('declinedShort')}</em>` : x.locked ? `<em class="wait no">🔒 ${T('lockedShort')}</em>` : x.settle === 'theirs' ? `<em class="wait">✦ ${T('settleAskShort')}</em>` : x.settle === 'mine' ? `<em class="wait">${T('settleWaitShort')}</em>` : statusNet(b, name)}</small></span>
+    <span class="amt">${amt}</span>
   </button></li>`;
 }
 
 function renderCounter() {
   const c = current;
   if (!c) return;
-  const d = c.data;
+  let d = c.data;
   if (c.locked) {
     const inList = tabs.some((x) => x.token === c.token);
     app.innerHTML = `${header({ title: '', back: true })}
@@ -200,8 +239,12 @@ function renderCounter() {
         : `<div class="window skeleton">${qamariya({ mood: 'even', variant: 'full' })}</div>`}</main>`;
     return;
   }
-  const bals = balsOf(d), list = balList(bals, d.currency), mood = moodOfB(bals);
+  const nick = tabs.find((x) => x.token === c.token)?.nick;
+  if (nick) d = { ...d, friend: nick };
+  const bals = balsOf(d), list = balList(bals, d.currency), mood = moodNet(bals), net = netOf(bals);
   const canShare = d.side === 'a' && d.share_token;
+  const single = list.length === 1;
+  const onlyMain = single && list[0][0] === mainCur();
   app.innerHTML = `
   ${header({ title: esc(d.friend), back: true, actions: `
       ${canShare ? `<button class="icon-btn" data-act="share" aria-label="${T('share')}">${ICON.share}</button>` : ''}
@@ -209,12 +252,14 @@ function renderCounter() {
   ${demoBanner()}
   ${c.offline ? `<p class="banner warn">${T('offline')}</p>` : ''}
   <main class="counter mood-${mood}">
-    <div class="window">${qamariya({ mood, variant: 'full', label: statusOfB(bals, d.friend) })}</div>
-    <div class="balance">${list.length > 1
-      ? `<div class="multi">${list.map(([c, v]) => `<div class="bal-line ${v > 0 ? 'pos' : 'neg'}">
-           <span class="amount">${money(v, c)}</span><small>${statusOf(v, d.friend)}</small></div>`).join('')}</div>`
-      : `<div class="amount">${mood === 'even' ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>` : money(list[0][1], list[0][0])}</div>
-         <div class="status">${statusOfB(bals, d.friend)}</div>`}
+    <div class="window">${qamariya({ mood, variant: 'full', label: statusNet(bals, d.friend) })}</div>
+    <div class="balance">
+      <div class="amount">${!list.length ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>`
+        : single ? money(list[0][1], list[0][0]) : `<span class="approx">≈</span>${money(net, mainCur())}`}</div>
+      <div class="status">${statusNet(bals, d.friend)}</div>
+      ${list.length > 1 ? `<div class="parts-line">${list.map(([c, v]) => signed(v, c)).join('<i>·</i>')}</div>` : ''}
+      ${single && !onlyMain ? `<div class="parts-line">≈ ${signed(net, mainCur())}</div>` : ''}
+      ${list.length && !onlyMain ? `<button class="rate-line" data-act="rates">${rateLine(bals)} · ${T('editRates')}</button>` : ''}
     </div>
     ${d.status && d.status !== 'active' ? `<p class="banner ${d.status === 'declined' ? 'warn' : ''} pending-note">${d.status === 'pending' ? T('pendingNote', esc(d.friend)) : T('declinedNote', esc(d.friend))}</p>
       ${d.status === 'declined' ? `<button class="btn ghost neg-text" data-act="remove-now">${ICON.trash} ${T('remove')}</button>` : ''}` : ''}
@@ -238,7 +283,8 @@ function renderCounter() {
 function settleBox(d) {
   const r = d.settle_request;
   if (!r || (d.status && d.status !== 'active')) return '';
-  const amounts = balList(r.balances || {}, d.currency).map(([c, v]) => signed(v, c)).join(' · ');
+  const rl = balList(r.balances || {}, d.currency);
+  const amounts = rl.map(([c, v]) => signed(v, c)).join(' · ') + (rl.length > 1 || (rl[0] && rl[0][0] !== mainCur()) ? ` <small>(≈ ${signed(netOf(r.balances), mainCur())})</small>` : '');
   if (r.by_me) return `<div class="settle-box mine">
       <p><b>${T('settleWaiting', esc(d.friend))}</b><span class="amts">${amounts}</span></p>
       <button class="btn ghost small-btn" data-act="settle-cancel">${T('settleCancel')}</button></div>`;
@@ -311,6 +357,10 @@ async function refresh({ first = false } = {}) {
       location.replace('#/t/' + mine.token);
       return;
     }
+    if (c.data && d.updated_at !== c.data.updated_at && !(c.data.settle_request?.by_me && !d.settle_request)) {
+      for (const [cur, diff] of Object.entries(balDiff(c.data.balances, d.balances)))
+        notify(T(diff > 0 ? 'evPlus' : 'evMinus', nickOf(c.token, d.friend), plain(diff, cur)), c.token, 'money', true);
+    }
     const before = c.data?.settle_request, after = d.settle_request;
     let cheer = false;
     if (c.data && before?.by_me && !after) {
@@ -350,6 +400,9 @@ async function refreshRequests() {
     const r = await api.inviteRequests(settings.invite.key);
     if (!r) return;
     const changed = JSON.stringify(r.pending) !== JSON.stringify(requests);
+    const seen = new Set(LS.get('qy.seenReq', []));
+    for (const q of r.pending || []) if (!seen.has(q.ledger_id)) { seen.add(q.ledger_id); notify(T('evJoin', q.name), null, 'join'); }
+    LS.set('qy.seenReq', [...seen].slice(-200));
     requests = r.pending || [];
     Object.assign(settings.invite, { code: r.code, enabled: r.enabled }); saveSettings();
     if (changed && !current) renderHome();
@@ -357,7 +410,7 @@ async function refreshRequests() {
 }
 function startHomePoll() {
   clearInterval(homeTimer);
-  homeTimer = setInterval(() => { if (!current && !document.hidden && !sheetRoot.classList.contains('open')) { refreshHome(); } }, isCloud ? 12000 : 3000);
+  homeTimer = setInterval(() => { refreshHome(); }, isCloud ? 12000 : 3000);
 }
 
 async function refreshHome() {
@@ -368,12 +421,13 @@ async function refreshHome() {
     let changed = false;
     for (const s of list || []) {
       const x = tabs.find((x) => x.token === s.token);
+      if (x) noticeChanges(x, s);
       if (x && (JSON.stringify(x.balances) !== JSON.stringify(s.balances) || x.friend !== s.friend || x.updatedAt !== s.updated_at || (x.status || 'active') !== (s.status || 'active') || (x.settle || null) !== (s.settle || null) || !!x.locked !== !!s.locked)) {
         Object.assign(x, { balances: s.locked ? x.balances : s.balances, friend: s.friend, me: s.me, currency: s.currency, updatedAt: s.updated_at, ledgerId: s.ledger_id, side: s.side, status: s.status || 'active', settle: s.settle || null, locked: !!s.locked });
         changed = true;
       }
     }
-    tabs.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    sortTabs();
     saveTabs();
     // tabs that ended on the other side leave the list by themselves:
     // a request that was declined, or a tab that no longer exists on the server
@@ -419,8 +473,8 @@ function closeSheet(immediate) {
 sheetRoot.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
 
-const currencyChips = (sel) => Object.keys(CURRENCIES).filter((c) => !CURRENCIES[c].hidden || c === sel).map((c) =>
-  `<label class="chip"><input type="radio" name="currency" value="${c}" ${c === sel ? 'checked' : ''}><span>${CURRENCIES[c][settings.lang]}</span></label>`).join('');
+const currencyChips = (sel, field = 'currency') => Object.keys(CURRENCIES).filter((c) => !CURRENCIES[c].hidden || c === sel).map((c) =>
+  `<label class="chip"><input type="radio" name="${field}" value="${c}" ${c === sel ? 'checked' : ''}><span>${CURRENCIES[c][settings.lang]}</span></label>`).join('');
 
 function newTabSheet() {
   sheet(`<form class="stack" data-form="new">
@@ -511,6 +565,10 @@ function menuSheet() {
     ${d.side === 'a' ? `<div class="link-state ${d.link_locked ? 'on' : ''}">
         <p>${d.link_locked ? `🔒 ${T('linkLocked', esc(d.friend))}` : T('linkFree', esc(d.friend))}</p>
         <button class="btn ghost" type="button" data-act="new-link">${ICON.link} ${T('newLink')}</button></div>` : ''}
+    <div class="row-btns">
+      <button class="btn ghost" type="button" data-act="nick" data-token="${esc(current.token)}">${ICON.pencil} ${T('nick')}</button>
+      <button class="btn ghost" type="button" data-act="pin" data-token="${esc(current.token)}">${ICON.pin} ${tabs.find((x) => x.token === current.token)?.pinned ? T('unpin') : T('pin')}</button>
+    </div>
     <button class="btn ghost neg-text" type="button" data-act="remove">${ICON.trash} ${T('remove')}</button>
   </form>`);
 }
@@ -563,7 +621,7 @@ function splitSheet() {
     <div class="field"><span>${T('splitWho')}</span>
       <div class="chips people">
         <label class="chip me"><input type="checkbox" name="me" checked><span>${T('you')}</span></label>
-        ${tabs.map((x) => `<label class="chip"><input type="checkbox" name="p" value="${esc(x.token)}"><span>${esc(x.friend)}</span></label>`).join('')}
+        ${tabs.filter((x) => (x.status || 'active') === 'active' && !x.locked).map((x) => `<label class="chip"><input type="checkbox" name="p" value="${esc(x.token)}"><span>${esc(x.nick || x.friend)}</span></label>`).join('')}
       </div></div>
     <div class="breakdown"></div>
     <p class="muted small split-hint">${T('splitRest')}</p>
@@ -576,7 +634,7 @@ function splitSheet() {
     const parts = () => {
       const out = [];
       if ($('[name=me]', el).checked) out.push({ key: 'me', name: T('you') });
-      el.querySelectorAll('[name=p]:checked').forEach((c) => out.push({ key: c.value, name: tabs.find((x) => x.token === c.value)?.friend || '' }));
+      el.querySelectorAll('[name=p]:checked').forEach((c) => out.push({ key: c.value, name: nickOf(c.value, tabs.find((x) => x.token === c.value)?.friend || '') }));
       return out.map((p) => ({ ...p, custom: custom[p.key] ?? null }));
     };
     const rows = () => {
@@ -634,7 +692,7 @@ function splitDetail(id) {
     <p class="muted"><bdi>${when(g.created_at)}</bdi> · ${money(g.total, g.currency)} · ${T('people', nf().format(g.count))}</p>
     <ul class="split-lines">
       ${g.me ? line(T('mine'), g.me, 'me') : ''}
-      ${g.items.map((it) => line(esc(it.friend), it.amount)).join('')}
+      ${g.items.map((it) => line(esc(nickOf(it.token, it.friend)), it.amount)).join('')}
     </ul>
     <button class="btn ghost neg-text" data-act="split-undo" data-id="${esc(g.group_id)}">${ICON.trash} ${T('undoSplit')}</button>
   </div>`);
@@ -832,6 +890,142 @@ function tour(kind = 'owner', onDone) {
   setTimeout(() => $('[data-t=next]', el).focus(), 300);
 }
 
+// ---------- exchange rates ----------
+function ratesSheet() {
+  const shown = Object.keys(CURRENCIES).filter((c) => c !== 'USD' && !CURRENCIES[c].hidden);
+  sheet(`<form class="stack" data-form="rates">
+    <h2 class="sheet-title">💱 ${T('rates')}</h2>
+    <p class="muted small">${T('ratesHint')}</p>
+    <div class="field"><span>${T('showIn')}</span><div class="chips">${currencyChips(mainCur(), 'main')}</div></div>
+    <div class="rate-rows">${shown.map((c) => `<label class="rate-row"><span dir="ltr">1 $ =</span>
+      <input name="r_${c}" inputmode="decimal" dir="ltr" value="${rate(c)}" aria-label="${esc(curLabel(c))}"><b>${esc(curLabel(c))}</b></label>`).join('')}</div>
+    <p class="muted small">${T('yerNote')}${settings.ratesAt ? ` · ${T('ratesFrom', when(settings.ratesAt))}` : ''}</p>
+    <div class="row-btns">
+      <button class="btn ghost" type="button" data-act="rates-net">🌐 ${T('ratesNet')}</button>
+      <button class="btn primary" type="submit">${T('save')}</button>
+    </div>
+    <button class="btn link" type="button" data-act="rates-reset">${T('ratesReset')}</button>
+  </form>`);
+}
+
+async function fetchRates(btn) {
+  try {
+    btn.disabled = true;
+    const r = await fetch('https://open.er-api.com/v6/latest/USD').then((x) => x.json());
+    if (r.result !== 'success') throw new Error('rates');
+    const form = $('.sheet [data-form=rates]');
+    // the Yemeni rial has two real-world rates (Sana'a / Aden), so it stays as the person set it
+    for (const c of ['LBP', 'SAR', 'AED', 'EUR', 'EGP']) {
+      const v = r.rates[c]; if (!v) continue;
+      settings.rates = { ...(settings.rates || {}), [c]: Math.round(v * 10000) / 10000 };
+      const inp = form?.querySelector(`[name=r_${c}]`); if (inp) inp.value = settings.rates[c];
+    }
+    settings.ratesAt = new Date().toISOString(); saveSettings();
+    toast(T('ratesUpdated'));
+  } catch { toast(T('error')); } finally { btn.disabled = false; }
+}
+
+// ---------- my own name for a friend (only on my phone) ----------
+function nickSheet(token) {
+  const x = tabs.find((t) => t.token === token); if (!x) return;
+  sheet(`<form class="stack" data-form="nick" data-token="${esc(token)}">
+    <h2 class="sheet-title">${ICON.pencil} ${T('nickTitle')}</h2>
+    <label class="field"><span>${T('nickLabel', esc(x.friend))}</span><input name="nick" maxlength="40" autofocus value="${esc(x.nick || x.friend)}"></label>
+    <p class="muted small">${T('nickHint')}</p>
+    <button class="btn primary" type="submit">${T('save')}</button>
+  </form>`);
+}
+
+// ---------- swipe a row for pin / nickname / remove ----------
+let swipeState = null, swallowClick = false;
+const openRows = () => document.querySelectorAll('.tabs li.swipe.open');
+function closeRows(except) { openRows().forEach((li) => { if (li !== except) { li.classList.remove('open'); li.querySelector('.tab-row').style.transform = ''; } }); }
+document.addEventListener('pointerdown', (e) => {
+  const row = e.target.closest('.tabs li.swipe .tab-row');
+  if (!e.target.closest('.tabs li.swipe')) closeRows();
+  if (!row) return;
+  swipeState = { row, li: row.closest('li'), x0: e.clientX, y0: e.clientY, dx: 0, drag: false, base: row.closest('li').classList.contains('open') ? 1 : 0 };
+});
+document.addEventListener('pointermove', (e) => {
+  const s = swipeState; if (!s) return;
+  const dx = e.clientX - s.x0, dy = e.clientY - s.y0;
+  if (!s.drag && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.3) { s.drag = true; s.row.style.transition = 'none'; closeRows(s.li); }
+  if (!s.drag) return;
+  const dir = document.documentElement.dir === 'rtl' ? 1 : -1, W = s.li.querySelector('.row-actions').offsetWidth || 210;
+  const pos = Math.max(0, Math.min(W, s.base * W + dx * dir));
+  s.dx = pos; s.row.style.transform = `translateX(${pos * dir}px)`;
+});
+document.addEventListener('pointerup', () => {
+  const s = swipeState; swipeState = null; if (!s) return;
+  s.row.style.transition = '';
+  if (!s.drag) return;
+  swallowClick = true; setTimeout(() => { swallowClick = false; }, 60);
+  const W = s.li.querySelector('.row-actions').offsetWidth || 210, open = s.dx > W * 0.35;
+  s.li.classList.toggle('open', open);
+  s.row.style.transform = open ? `translateX(${(document.documentElement.dir === 'rtl' ? 1 : -1) * W}px)` : '';
+  if (open && !settings.swiped) { settings.swiped = true; saveSettings(); document.querySelector('.swipe-hint')?.remove(); }
+});
+document.addEventListener('click', (e) => { if (swallowClick && e.target.closest('.tab-row')) { e.stopPropagation(); e.preventDefault(); } }, true);
+
+// ---------- activity & notifications ----------
+let activity = LS.get('qy.activity', []);
+const unread = () => activity.filter((a) => !a.read).length;
+function balDiff(a = {}, b = {}) {
+  const out = {};
+  for (const c of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) { const v = r2((b?.[c] || 0) - (a?.[c] || 0)); if (Math.abs(v) >= 0.005) out[c] = v; }
+  return out;
+}
+// what changed on the other side since I last looked at this tab
+function noticeChanges(x, s) {
+  if (!x.updatedAt || x.updatedAt === s.updated_at || current?.token === x.token) return;   // the open tab reports its own changes
+  const name = x.nick || s.friend || x.friend;
+  if (x.status === 'pending' && s.status === 'active') return notify(T('evAccepted', name), x.token, 'accept');
+  if (x.status === 'pending' && s.status === 'declined') return notify(T('evDeclined', name), null, 'decline', true);
+  if (x.settle !== 'theirs' && s.settle === 'theirs') return notify(T('evSettleAsk', name), x.token, 'settle');
+  if (x.settle === 'mine' && !s.settle) {
+    return Object.keys(s.balances || {}).length ? notify(T('evSettleNo', name), x.token, 'settle') : notify(T('evSettled', name), x.token, 'settle');
+  }
+  for (const [cur, diff] of Object.entries(balDiff(x.balances, s.balances)))
+    notify(T(diff > 0 ? 'evPlus' : 'evMinus', name, plain(diff, cur)), x.token, 'money');
+}
+function notify(text, token, kind, quiet = false) {
+  const viewing = current?.token === token && !document.hidden;
+  activity.unshift({ id: Date.now() + Math.random(), at: new Date().toISOString(), text, token, kind, read: viewing });
+  activity = activity.slice(0, 40); LS.set('qy.activity', activity);
+  if (!document.hidden && !quiet) toast(text);
+  if (document.hidden && settings.notify && 'Notification' in window && Notification.permission === 'granted') {
+    navigator.serviceWorker?.ready.then((reg) => reg.showNotification(T('appName'), {
+      body: text, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: (token || kind) + '', data: { hash: token ? '#/t/' + token : '#/' },
+    })).catch(() => {});
+  }
+  if (!current && !sheetRoot.classList.contains('open')) renderHome();
+}
+function activitySheet() {
+  const canAsk = 'Notification' in window;
+  const state = !canAsk ? 'none' : Notification.permission === 'granted' && settings.notify ? 'on' : Notification.permission === 'denied' ? 'blocked' : 'off';
+  sheet(`<div class="stack">
+    <h2 class="sheet-title">${ICON.bell} ${T('activity')}</h2>
+    ${state === 'on' ? `<p class="muted small">✓ ${T('notifyOn')}</p>`
+      : state === 'off' ? `<button class="btn primary" data-act="notify-on">${ICON.bell} ${T('notifyEnable')}</button><p class="muted small">${T('notifyHint')}</p>`
+      : state === 'blocked' ? `<p class="muted small">${T('notifyBlocked')}</p>` : `<p class="muted small">${T('notifyNone')}</p>`}
+    ${activity.length ? `<ul class="ev-list">${activity.map((a) => `<li class="${a.read ? '' : 'new'}">
+        ${a.token ? `<button class="ev" data-act="ev-open" data-token="${esc(a.token)}">` : '<div class="ev">'}
+        <span class="ev-dot"></span><span class="ev-t">${esc(a.text)}</span><small><bdi>${when(a.at)}</bdi></small>
+        ${a.token ? '</button>' : '</div>'}</li>`).join('')}</ul>`
+      : `<p class="muted center">${T('noActivity')}</p>`}
+  </div>`);
+  activity.forEach((a) => { a.read = true; }); LS.set('qy.activity', activity);
+  if (!current) renderHome();
+}
+async function enableNotifications() {
+  try {
+    const p = await Notification.requestPermission();
+    settings.notify = p === 'granted'; saveSettings();
+    toast(p === 'granted' ? T('notifyOn') : T('notifyBlocked'));
+  } catch { toast(T('error')); }
+  activitySheet();
+}
+
 function settingsSheet() {
   const seg = (name, opts, val) => `<div class="seg">${opts.map(([v, l]) =>
     `<label><input type="radio" name="${name}" value="${v}" ${v === val ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
@@ -841,6 +1035,10 @@ function settingsSheet() {
     <div class="field"><span>${T('language')}</span>${seg('lang', [['ar', 'العربية'], ['en', 'English']], settings.lang)}</div>
     <div class="field"><span>${T('numerals')}</span>${seg('nums', [['arab', '١٢٣'], ['latn', '123']], nums())}</div>
     <button class="btn primary" type="submit">${T('save')}</button>
+    <div class="row-btns">
+      <button class="btn ghost" type="button" data-act="rates">💱 ${T('rates')}</button>
+      <button class="btn ghost" type="button" data-act="activity">${ICON.bell} ${T('activity')}</button>
+    </div>
     <button class="btn ghost" type="button" data-act="tour">✦ ${T('tourAgain')}</button>
     ${installHtml()}
   </form>`);
@@ -902,6 +1100,22 @@ document.addEventListener('click', async (e) => {
   }
   else if (act === 'settings') settingsSheet();
   else if (act === 'invite') inviteSheet();
+  else if (act === 'rates') ratesSheet();
+  else if (act === 'rates-net') fetchRates(el);
+  else if (act === 'rates-reset') { settings.rates = {}; settings.ratesAt = null; saveSettings(); ratesSheet(); toast(T('saved')); }
+  else if (act === 'activity') activitySheet();
+  else if (act === 'notify-on') enableNotifications();
+  else if (act === 'ev-open') { closeSheet(true); location.hash = '#/t/' + el.dataset.token; }
+  else if (act === 'pin') {
+    const x = tabs.find((t) => t.token === el.dataset.token); if (!x) return;
+    x.pinned = !x.pinned; saveTabs(); closeSheet(true); toast(x.pinned ? T('pinned') : T('unpinned'));
+    if (current) renderCounter(); else renderHome();
+  }
+  else if (act === 'nick') nickSheet(el.dataset.token);
+  else if (act === 'del') {
+    const x = tabs.find((t) => t.token === el.dataset.token); if (!x) return;
+    confirmSheet({ title: T('remove'), body: T('removeQ'), danger: true, ok: T('remove'), onOk: () => { closeSheet(true); toast(T('removed')); dropTabs([{ ...x, status: 'removed' }]); } });
+  }
   else if (act === 'new-link') {
     const d = current.data;
     confirmSheet({ title: T('newLink'), body: T('newLinkQ', esc(d.friend)), ok: T('newLink'), onOk: async () => {
@@ -1052,6 +1266,19 @@ document.addEventListener('submit', async (e) => {
       toast(m.includes('slow') || m.includes('too many') ? T('joinBusy') : m.includes('closed') ? T('inviteClosed') : T('error'));
     }
   }
+  else if (kind === 'rates') {
+    settings.mainCur = String(fd.get('main') || 'USD');
+    const r = {};
+    for (const c of Object.keys(CURRENCIES)) if (c !== 'USD') { const v = parseAmount(fd.get('r_' + c) ?? ''); if (v > 0 && v !== DEFAULT_RATES[c]) r[c] = v; }
+    settings.rates = r; saveSettings(); closeSheet(true); toast(T('saved'));
+    if (current) renderCounter(); else renderHome();
+  }
+  else if (kind === 'nick') {
+    const x = tabs.find((t) => t.token === form.dataset.token);
+    if (x) { const v = String(fd.get('nick') || '').trim(); x.nick = v && v !== x.friend ? v.slice(0, 40) : ''; saveTabs(); }
+    closeSheet(true); toast(T('saved'));
+    if (current) renderCounter(); else renderHome();
+  }
   else if (kind === 'dispute') {
     const r = await busy(btn, () => api.dispute(current.token, form.dataset.id, String(fd.get('reason') || '').trim()));
     if (r) { closeSheet(); setData(r); }
@@ -1095,6 +1322,7 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); inst
 
 applyLang();
 route();
+startHomePoll();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {});

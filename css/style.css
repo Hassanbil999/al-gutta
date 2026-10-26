@@ -401,3 +401,44 @@ bdi.money .cur { font-size: .62em; opacity: .75; font-family: var(--f-body); fon
 .link-state { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .link-state p { margin: 0; color: var(--ink-2); font-size: 14px; }
 .link-state.on p { color: var(--pos); font-weight: 600; }
+
+/* ---------- v8: combined totals, swipe rows, notifications ---------- */
+.approx { font-size: .6em; opacity: .7; margin-inline-end: 3px; font-family: var(--f-body); }
+.parts-line { margin-top: 6px; font: 600 15px var(--f-display); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.parts-line i { font-style: normal; opacity: .5; }
+.parts-line .pos { color: var(--pos); } .parts-line .neg { color: var(--neg); }
+.rate-line { margin-top: 8px; border: 0; background: color-mix(in srgb, var(--saffron) 12%, transparent); color: var(--ink-2); border-radius: 99px; padding: 5px 12px; font-size: 12.5px; }
+.tab-row .amt .parts { display: block; font: 500 11.5px var(--f-body); color: var(--ink-2); margin-top: 2px; white-space: nowrap; }
+.tab-row .amt .approx { font-size: 13px; }
+.rate-rows { display: flex; flex-direction: column; gap: 8px; }
+.rate-row { display: grid; grid-template-columns: auto 1fr 44px; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; direction: ltr; }
+.rate-row span { color: var(--ink-2); font-size: 14px; }
+.rate-row input { width: 100%; border: 1.5px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--paper); font: 600 17px var(--f-display); text-align: center; outline: none; }
+.rate-row input:focus { border-color: var(--saffron); }
+.rate-row b { font-weight: 600; text-align: center; }
+/* swipe rows */
+.tabs li.swipe { position: relative; border-radius: var(--radius); }
+.tabs li.swipe .tab-row { position: relative; z-index: 1; touch-action: pan-y; transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+.row-actions { position: absolute; inset: 0; display: flex; justify-content: flex-end; border-radius: var(--radius); overflow: hidden; background: var(--line); }
+.row-actions button { width: 70px; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; background: var(--mud); color: var(--gypsum); font-size: 11.5px; font-weight: 600; }
+.row-actions button + button { border-inline-start: 1px solid rgba(255, 255, 255, .15); }
+.row-actions button:nth-child(2) { background: #9a5a32; }
+.row-actions button.danger { background: var(--neg); }
+.row-actions svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.row-actions { width: 210px; inset-inline-start: auto; }
+.pinned { font-style: normal; font-size: 13px; margin-inline-end: 4px; }
+.swipe-hint { text-align: center; color: var(--ink-2); font-size: 13px; margin: 12px 0 0; opacity: .8; }
+/* bell */
+.icon-btn.bell { position: relative; }
+.icon-btn.bell .badge { position: absolute; top: 4px; inset-inline-end: 2px; min-width: 18px; height: 18px; border-radius: 99px; background: var(--saffron); color: #2B1A10; font: 700 11px/18px var(--f-body); font-style: normal; text-align: center; padding: 0 4px; }
+.ev-list { list-style: none; margin: 0; padding: 0; }
+.ev-list li { border-bottom: 1px solid var(--line); }
+.ev { width: 100%; display: grid; grid-template-columns: 10px 1fr; column-gap: 10px; text-align: start; background: none; border: 0; padding: 12px 2px; color: var(--ink); }
+.ev small { grid-column: 2; color: var(--ink-2); font-size: 12px; }
+.ev-dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; margin-top: 8px; }
+.ev-list li.new .ev-dot { background: var(--saffron); }
+.ev-list li.new .ev-t { font-weight: 600; }
+.sheet-title svg { width: 22px; height: 22px; display: inline-block; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sheet .btn svg { flex: none; }
+.tab-row .amt .net { display: inline-flex; align-items: baseline; gap: 2px; }
+.tab-row .amt .net .pos, .tab-row .amt .net .neg { font-size: inherit; }

@@ -1,6 +1,6 @@
 // Offline support: app files come from the network when online, from the cache when offline.
 // Bump VERSION when you deploy changes.
-const VERSION = 'qy-v10';
+const VERSION = 'qy-v11';
 const SHELL = [
   './', './index.html', './css/style.css', './config.js',
   './js/app.js', './js/store.js', './js/i18n.js', './js/qamariya.js',
@@ -39,4 +39,14 @@ self.addEventListener('fetch', (e) => {
     const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy));
     return res;
   })));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const hash = e.notification.data?.hash || '#/';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const c = list[0];
+    if (c) { c.navigate(new URL('./' + hash, self.registration.scope).href).catch(() => {}); return c.focus(); }
+    return self.clients.openWindow('./' + hash);
+  }));
 });
