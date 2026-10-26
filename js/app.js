@@ -1355,6 +1355,25 @@ applyLang();
 route();
 startHomePoll();
 
+// updates arrive by themselves: check whenever the app comes back to the screen,
+// and reload once the new version has taken over (never in the middle of an open sheet)
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    setInterval(check, 5 * 60 * 1000);
+    check();
+  }).catch(() => {});
+  let hadController = !!navigator.serviceWorker.controller, reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }   // first install: nothing to refresh
+    if (reloading) return; reloading = true;
+    const go = () => {
+      if (sheetRoot.classList.contains('open') || document.getElementById('tour')) return setTimeout(go, 1500);
+      try { sessionStorage.setItem('qy.updated', '1'); } catch {}
+      location.reload();
+    };
+    go();
+  });
 }
+try { if (sessionStorage.getItem('qy.updated')) { sessionStorage.removeItem('qy.updated'); setTimeout(() => toast(T('appUpdated')), 700); } } catch {}

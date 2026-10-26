@@ -1,6 +1,6 @@
 // Offline support: app files come from the network when online, from the cache when offline.
 // Bump VERSION when you deploy changes.
-const VERSION = 'qy-v12';
+const VERSION = 'qy-v13';
 const SHELL = [
   './', './index.html', './css/style.css', './config.js',
   './js/app.js', './js/store.js', './js/i18n.js', './js/qamariya.js',
@@ -28,7 +28,8 @@ self.addEventListener('fetch', (e) => {
   // app files: network first (so updates show right away), cache when offline
   if (sameOrigin) {
     const key = req.mode === 'navigate' ? './index.html' : req;
-    e.respondWith(fetch(req).then((res) => {
+    // always ask the server (cheap 304 when nothing changed) so a new version is never stuck behind the browser cache
+    e.respondWith(fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(key, copy)); }
       return res;
     }).catch(() => caches.match(key)));
