@@ -95,6 +95,10 @@ const nickOf = (token, fallback) => tabs.find((x) => x.token === token)?.nick ||
 const sortTabs = () => tabs.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 const signed = (v, c) => `<span class="${v > 0 ? 'pos' : 'neg'}">${money(v, c)}</span>`;
 const linkFor = (tok) => location.origin + location.pathname.replace(/index\.html$/, '') + '#/t/' + tok;
+const parseRate = (s) => {
+  const n = Number(String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٬,\s]/g, '').replace(/[٫]/g, '.'));
+  return Number.isFinite(n) && n > 0 ? n : NaN;
+};
 const parseAmount = (s) => {
   s = String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
     .replace(/[٬,\s]/g, '').replace(/[٫]/g, '.');
@@ -202,7 +206,7 @@ function tabRow(x) {
   const b = balsOf(x), mood = moodNet(b), name = x.nick || x.friend || '';
   const list = balList(b, x.currency), net = netOf(b);
   const amt = !list.length ? '' : list.length === 1 && list[0][0] === mainCur() ? signed(list[0][1], list[0][0])
-    : `<span class="net">${list.length > 1 || list[0][0] !== mainCur() ? '<span class="approx">≈</span>' : ''}${signed(net, mainCur())}</span><small class="parts">${list.map(([c, v]) => (v > 0 ? '+' : '−') + plain(v, c)).join(' · ')}</small>`;
+    : `<span class="net">${list.length > 1 || list[0][0] !== mainCur() ? '<span class="approx">≈</span>' : ''}${signed(net, mainCur())}</span>`;
   return `<li class="swipe" data-token="${esc(x.token)}">
     <div class="row-actions">
       <button data-act="pin" data-token="${esc(x.token)}">${ICON.pin}<small>${x.pinned ? T('unpin') : T('pin')}</small></button>
@@ -244,6 +248,10 @@ function renderCounter() {
   const bals = balsOf(d), list = balList(bals, d.currency), mood = moodNet(bals), net = netOf(bals);
   const canShare = d.side === 'a' && d.share_token;
   const single = list.length === 1;
+  // settled lines (and the settle lines themselves) can be removed from my own history
+  const settledAt = lastSettleAt(d), hidden = new Set(tabs.find((x) => x.token === c.token)?.hidden || []);
+  const canHide = (e) => e.kind === 'settle' || e.created_at < settledAt;
+  const shown = d.entries.filter((e) => !hidden.has(e.id)), removable = shown.filter(canHide);
   const onlyMain = single && list[0][0] === mainCur();
   app.innerHTML = `
   ${header({ title: esc(d.friend), back: true, actions: `
@@ -257,9 +265,6 @@ function renderCounter() {
       <div class="amount">${!list.length ? `<bdi class="money"><span class="n">${settings.lang === 'ar' && nums() === 'arab' ? 'صفر' : nf().format(0)}</span></bdi>`
         : single ? money(list[0][1], list[0][0]) : `<span class="approx">≈</span>${money(net, mainCur())}`}</div>
       <div class="status">${statusNet(bals, d.friend)}</div>
-      ${list.length > 1 ? `<div class="parts-line">${list.map(([c, v]) => signed(v, c)).join('<i>·</i>')}</div>` : ''}
-      ${single && !onlyMain ? `<div class="parts-line">≈ ${signed(net, mainCur())}</div>` : ''}
-      ${list.length && !onlyMain ? `<button class="rate-line" data-act="rates">${rateLine(bals)} · ${T('editRates')}</button>` : ''}
     </div>
     ${d.status && d.status !== 'active' ? `<p class="banner ${d.status === 'declined' ? 'warn' : ''} pending-note">${d.status === 'pending' ? T('pendingNote', esc(d.friend)) : T('declinedNote', esc(d.friend))}</p>
       ${d.status === 'declined' ? `<button class="btn ghost neg-text" data-act="remove-now">${ICON.trash} ${T('remove')}</button>` : ''}` : ''}
@@ -273,9 +278,10 @@ function renderCounter() {
       ${canShare ? `<button class="btn ghost" data-act="share">${ICON.share} ${T('share')}</button>` : ''}
     </div>
     <section class="history" ${d.status && d.status !== 'active' && !d.entries.length ? 'hidden' : ''}>
-      <h2>${T('history')}</h2>
-      ${d.entries.length ? `<ol>${d.entries.map((e) => entryRow(e, d, lastSettleAt(d))).join('')}</ol>`
-                         : `<p class="muted center">${esc(T('empty')).replace('\n', '<br>')}</p>`}
+      <h2>${T('history')}${removable.length > 1 ? `<button class="link" data-act="hide-all">${T('hideAll')}</button>` : ''}</h2>
+      ${removable.length && !settings.swipedH ? `<p class="swipe-hint">⇆ ${T('swipeHintH')}</p>` : ''}
+      ${shown.length ? `<ol>${shown.map((e) => { const html = entryRow(e, d, settledAt); return canHide(e) ? swipeWrap(html, e.id) : html; }).join('')}</ol>`
+        : `<p class="muted center">${esc(d.entries.length ? T('historyCleared') : T('empty')).replace('\n', '<br>')}</p>`}
     </section>
   </main>`;
 }
@@ -284,7 +290,7 @@ function settleBox(d) {
   const r = d.settle_request;
   if (!r || (d.status && d.status !== 'active')) return '';
   const rl = balList(r.balances || {}, d.currency);
-  const amounts = rl.map(([c, v]) => signed(v, c)).join(' · ') + (rl.length > 1 || (rl[0] && rl[0][0] !== mainCur()) ? ` <small>(≈ ${signed(netOf(r.balances), mainCur())})</small>` : '');
+  const amounts = rl.length === 1 ? signed(rl[0][1], rl[0][0]) : `≈ ${signed(netOf(r.balances), mainCur())}`;
   if (r.by_me) return `<div class="settle-box mine">
       <p><b>${T('settleWaiting', esc(d.friend))}</b><span class="amts">${amounts}</span></p>
       <button class="btn ghost small-btn" data-act="settle-cancel">${T('settleCancel')}</button></div>`;
@@ -294,6 +300,9 @@ function settleBox(d) {
       <button class="btn pos small-btn" data-act="settle-yes">${T('settleYes')}</button></div></div>`;
 }
 
+const swipeWrap = (html, id) => `<li class="swipe hist" data-id="${esc(id)}">
+  <div class="row-actions one"><button class="danger" data-act="hide" data-id="${esc(id)}">${ICON.trash}<small>${T('del')}</small></button></div>
+  ${html.replace(/^\s*<li class="entry/, '<div class="entry').replace(/<\/li>\s*$/, '</div>')}</li>`;
 // entries from before a confirmed settle are closed: no undo, no dispute
 const lastSettleAt = (d) => d.entries.reduce((m, e) => (e.kind === 'settle' && e.created_at > m ? e.created_at : m), '');
 
@@ -938,11 +947,12 @@ function nickSheet(token) {
 
 // ---------- swipe a row for pin / nickname / remove ----------
 let swipeState = null, swallowClick = false;
-const openRows = () => document.querySelectorAll('.tabs li.swipe.open');
-function closeRows(except) { openRows().forEach((li) => { if (li !== except) { li.classList.remove('open'); li.querySelector('.tab-row').style.transform = ''; } }); }
+const openRows = () => document.querySelectorAll('li.swipe.open');
+const bodyOf = (li) => li.querySelector(':scope > .tab-row, :scope > .entry');
+function closeRows(except) { openRows().forEach((li) => { if (li !== except) { li.classList.remove('open'); bodyOf(li).style.transform = ''; } }); }
 document.addEventListener('pointerdown', (e) => {
-  const row = e.target.closest('.tabs li.swipe .tab-row');
-  if (!e.target.closest('.tabs li.swipe')) closeRows();
+  const row = e.target.closest('li.swipe > .tab-row, li.swipe > .entry');
+  if (!e.target.closest('li.swipe')) closeRows();
   if (!row) return;
   swipeState = { row, li: row.closest('li'), x0: e.clientX, y0: e.clientY, dx: 0, drag: false, base: row.closest('li').classList.contains('open') ? 1 : 0 };
 });
@@ -963,9 +973,20 @@ document.addEventListener('pointerup', () => {
   const W = s.li.querySelector('.row-actions').offsetWidth || 210, open = s.dx > W * 0.35;
   s.li.classList.toggle('open', open);
   s.row.style.transform = open ? `translateX(${(document.documentElement.dir === 'rtl' ? 1 : -1) * W}px)` : '';
-  if (open && !settings.swiped) { settings.swiped = true; saveSettings(); document.querySelector('.swipe-hint')?.remove(); }
+  const key = s.li.classList.contains('hist') ? 'swipedH' : 'swiped';
+  if (open && !settings[key]) { settings[key] = true; saveSettings(); s.li.closest('main')?.querySelector('.swipe-hint')?.remove(); }
 });
-document.addEventListener('click', (e) => { if (swallowClick && e.target.closest('.tab-row')) { e.stopPropagation(); e.preventDefault(); } }, true);
+document.addEventListener('click', (e) => { if (swallowClick && e.target.closest('.tab-row, li.swipe > .entry')) { e.stopPropagation(); e.preventDefault(); } }, true);
+// a one-time gentle "peek" so people discover that rows slide
+let peeked = { home: false, hist: false };
+function peekRows() {
+  const homeRow = !settings.swiped && !peeked.home && document.querySelector('.tabs li.swipe > .tab-row');
+  const histRow = !settings.swipedH && !peeked.hist && document.querySelector('.history li.swipe > .entry');
+  const row = homeRow || histRow; if (!row) return;
+  peeked[homeRow ? 'home' : 'hist'] = true;
+  row.classList.add('peek'); setTimeout(() => row.classList.remove('peek'), 2000);
+}
+new MutationObserver(() => requestAnimationFrame(peekRows)).observe(document.getElementById('app'), { childList: true });
 
 // ---------- activity & notifications ----------
 let activity = LS.get('qy.activity', []);
@@ -1112,6 +1133,16 @@ document.addEventListener('click', async (e) => {
     if (current) renderCounter(); else renderHome();
   }
   else if (act === 'nick') nickSheet(el.dataset.token);
+  else if (act === 'hide' || act === 'hide-all') {
+    const t = tabs.find((x) => x.token === current?.token); if (!t) return;
+    const d = current.data, at = lastSettleAt(d);
+    const ids = act === 'hide' ? [el.dataset.id] : d.entries.filter((e) => e.kind === 'settle' || e.created_at < at).map((e) => e.id);
+    const done = () => { t.hidden = [...new Set([...(t.hidden || []), ...ids])].slice(-500); saveTabs(); renderCounter(); toast(T('hiddenToast')); };
+    const li = act === 'hide' ? el.closest('li') : null;
+    if (!settings.swipedH) { settings.swipedH = true; saveSettings(); }
+    if (li) { li.classList.add('leaving'); setTimeout(done, 380); }
+    else confirmSheet({ title: T('hideAll'), body: T('hideAllQ'), danger: true, ok: T('del'), onOk: () => { closeSheet(true); done(); } });
+  }
   else if (act === 'del') {
     const x = tabs.find((t) => t.token === el.dataset.token); if (!x) return;
     confirmSheet({ title: T('remove'), body: T('removeQ'), danger: true, ok: T('remove'), onOk: () => { closeSheet(true); toast(T('removed')); dropTabs([{ ...x, status: 'removed' }]); } });
@@ -1269,7 +1300,7 @@ document.addEventListener('submit', async (e) => {
   else if (kind === 'rates') {
     settings.mainCur = String(fd.get('main') || 'USD');
     const r = {};
-    for (const c of Object.keys(CURRENCIES)) if (c !== 'USD') { const v = parseAmount(fd.get('r_' + c) ?? ''); if (v > 0 && v !== DEFAULT_RATES[c]) r[c] = v; }
+    for (const c of Object.keys(CURRENCIES)) if (c !== 'USD') { const v = parseRate(fd.get('r_' + c) ?? ''); if (v > 0 && v !== DEFAULT_RATES[c]) r[c] = v; }
     settings.rates = r; saveSettings(); closeSheet(true); toast(T('saved'));
     if (current) renderCounter(); else renderHome();
   }
