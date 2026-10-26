@@ -250,7 +250,7 @@ function renderCounter() {
   const single = list.length === 1;
   // settled lines (and the settle lines themselves) can be removed from my own history
   const settledAt = lastSettleAt(d), hidden = new Set(tabs.find((x) => x.token === c.token)?.hidden || []);
-  const canHide = (e) => e.kind === 'settle' || e.created_at < settledAt;
+  const canHide = (e) => e.kind === 'settle' || e.deleted || e.created_at < settledAt;   // crossed-out, settled, or settle lines
   const shown = d.entries.filter((e) => !hidden.has(e.id)), removable = shown.filter(canHide);
   const onlyMain = single && list[0][0] === mainCur();
   app.innerHTML = `
@@ -1136,7 +1136,7 @@ document.addEventListener('click', async (e) => {
   else if (act === 'hide' || act === 'hide-all') {
     const t = tabs.find((x) => x.token === current?.token); if (!t) return;
     const d = current.data, at = lastSettleAt(d);
-    const ids = act === 'hide' ? [el.dataset.id] : d.entries.filter((e) => e.kind === 'settle' || e.created_at < at).map((e) => e.id);
+    const ids = act === 'hide' ? [el.dataset.id] : d.entries.filter((e) => e.kind === 'settle' || e.deleted || e.created_at < at).map((e) => e.id);
     const done = () => { t.hidden = [...new Set([...(t.hidden || []), ...ids])].slice(-500); saveTabs(); renderCounter(); toast(T('hiddenToast')); };
     const li = act === 'hide' ? el.closest('li') : null;
     if (!settings.swipedH) { settings.swipedH = true; saveSettings(); }
